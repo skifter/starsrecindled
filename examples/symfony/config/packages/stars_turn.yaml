@@ -1,0 +1,4 @@
+stars_turn:
+  engine_service: Bellcom\StarsTurnBundle\Domain\DemoTurnEngine
+  mailer_from: '%env(STARS_MAILER_FROM)%'
+  frontend_base_url: '%env(STARS_FRONTEND_BASE_URL)%'

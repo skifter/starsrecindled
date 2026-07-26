@@ -1,0 +1,14 @@
+doctrine:
+  dbal:
+    url: '%env(resolve:DATABASE_URL)%'
+    server_version: '10.11.0-MariaDB'
+    charset: utf8mb4
+  orm:
+    auto_generate_proxy_classes: true
+    mappings:
+      StarsTurnBundle:
+        is_bundle: true
+        type: attribute
+        dir: Entity
+        prefix: Bellcom\StarsTurnBundle\Entity
+        alias: StarsTurn

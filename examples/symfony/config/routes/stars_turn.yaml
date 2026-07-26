@@ -1,0 +1,3 @@
+stars_turn_api:
+  resource: '@StarsTurnBundle/src/Controller/'
+  type: attribute
