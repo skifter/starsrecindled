@@ -23,6 +23,13 @@ Den medfølgende `DemoTurnEngine` er **ikke** en komplet Stars!-motor. Den bevis
 flowet og skal erstattes af den egentlige økonomi-, bevægelses-, kamp- og
 fog-of-war-engine.
 
+## script installation
+```bash
+curl -fsSL https://raw.githubusercontent.com/skifter/starsrecindled/main/install/install-debian13.sh -o /root/install-starsrecindled-debian13.sh
+chmod 0755 /root/install-starsrecindled-debian13.sh
+bash -n /root/install-starsrecindled-debian13.sh
+```
+
 ## Hurtig installation
 
 Se [docs/INSTALL-debian.md](docs/INSTALL-debian.md) for en pastebar installation
