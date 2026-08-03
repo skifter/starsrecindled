@@ -105,3 +105,8 @@ integreres med Symfony Security, CSRF-beskyttelse, rate limiting og rigtig bruge
 
 Serveren må aldrig sende den globale univers-tilstand til alle browsere. En rigtig
 engine skal tilføje en spiller-specifik projection/fog-of-war-service.
+
+## Inspiration
+https://github.com/sirgwain/craig-stars?utm_source=chatgpt.com
+https://starsautohost.org/gamesnew.htm
+https://github.com/ekolis/stars-nova
