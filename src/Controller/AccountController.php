@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Controller;
 
-use DateInterval;
+use Bellcom\StarsTurnBundle\Service\AccountAccessException;
+use Bellcom\StarsTurnBundle\Service\AccountAccessService;
+use Bellcom\StarsTurnBundle\Service\AccountCredentialVault;
+use Bellcom\StarsTurnBundle\Service\ResolvedAccountAccess;
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -18,12 +21,11 @@ use Throwable;
 
 final class AccountController extends AbstractController
 {
-    private const SESSION_TTL = 'P30D';
-
     public function __construct(
         private readonly Connection $connection,
+        private readonly AccountAccessService $access,
+        private readonly AccountCredentialVault $vault,
         private readonly MailerInterface $mailer,
-        private readonly ParameterBagInterface $parameters,
     ) {
     }
 
@@ -34,65 +36,45 @@ final class AccountController extends AbstractController
             $displayName = $this->requiredString($payload, 'displayName', 2, 120);
             $email = mb_strtolower($this->requiredEmail($payload, 'email'));
             $password = $this->requiredString($payload, 'password', 12, 4096);
-            $gameId = $this->requiredPositiveInt($payload, 'gameId');
-            $playerId = $this->requiredPositiveInt($payload, 'playerId');
-            $gameToken = $this->requiredString($payload, 'gameToken', 16, 4096);
 
-            $player = $this->verifyPlayerToken($gameId, $playerId, $gameToken);
-
-            if ($this->connection->fetchOne(
-                'SELECT id FROM stars_account WHERE email = :email',
-                ['email' => $email],
-            ) !== false) {
+            if ($this->connection->fetchOne('SELECT id FROM stars_account WHERE email = :email', ['email' => $email]) !== false) {
                 return $this->error('An account already exists for this email address.', Response::HTTP_CONFLICT);
             }
 
-            $now = $this->now();
             $passwordHash = password_hash($password, PASSWORD_ARGON2ID);
             if (!is_string($passwordHash)) {
                 throw new \RuntimeException('Unable to hash password.');
             }
 
+            $clientToken = $this->access->randomClientToken();
+            $now = $this->now();
             $accountId = $this->connection->transactional(function (Connection $connection) use (
                 $email,
                 $displayName,
                 $passwordHash,
-                $gameId,
-                $playerId,
-                $gameToken,
+                $clientToken,
                 $now,
             ): int {
                 $connection->insert('stars_account', [
                     'email' => $email,
                     'display_name' => $displayName,
                     'password_hash' => $passwordHash,
+                    'client_token_hash' => hash('sha256', $clientToken),
+                    'client_token_last_four' => substr($clientToken, -4),
+                    'client_token_created_at' => $now,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
 
-                $accountId = (int) $connection->lastInsertId();
-                $connection->insert('stars_account_game_access', [
-                    'account_id' => $accountId,
-                    'game_id' => $gameId,
-                    'player_id' => $playerId,
-                    'token_ciphertext' => $this->encryptToken($gameToken),
-                    'token_last_four' => substr($gameToken, -4),
-                    'created_at' => $now,
-                ]);
-
-                return $accountId;
+                return (int) $connection->lastInsertId();
             });
 
-            $mailWarning = $this->sendAccessEmail(
-                $email,
-                $displayName,
-                $gameId,
-                $playerId,
-                $gameToken,
-                $player,
-            );
+            $mailWarning = $this->sendClientTokenEmail($email, $displayName, $clientToken);
+            $session = $this->access->createWebSession($accountId);
+            $resolved = new ResolvedAccountAccess($accountId, $email, $displayName, true, $session['token']);
+            $response = new JsonResponse($this->profile($resolved, $mailWarning), Response::HTTP_CREATED);
 
-            return $this->authenticatedResponse($accountId, $mailWarning, Response::HTTP_CREATED);
+            return $this->withSessionCookie($response, $session['token'], $session['expiresAt'], $request);
         } catch (AccountInputException $exception) {
             return $this->error($exception->getMessage(), $exception->statusCode);
         } catch (Throwable $exception) {
@@ -108,7 +90,7 @@ final class AccountController extends AbstractController
             $password = $this->requiredString($payload, 'password', 1, 4096);
 
             $account = $this->connection->fetchAssociative(
-                'SELECT id, email, display_name, password_hash FROM stars_account WHERE email = :email',
+                'SELECT id, email, display_name, password_hash, client_token_hash FROM stars_account WHERE email = :email',
                 ['email' => $email],
             );
 
@@ -116,17 +98,37 @@ final class AccountController extends AbstractController
                 return $this->error('Invalid email address or password.', Response::HTTP_UNAUTHORIZED);
             }
 
+            $accountId = (int) $account['id'];
+            $displayName = (string) $account['display_name'];
+            $mailWarning = null;
+
             if (password_needs_rehash((string) $account['password_hash'], PASSWORD_ARGON2ID)) {
                 $newHash = password_hash($password, PASSWORD_ARGON2ID);
                 if (is_string($newHash)) {
                     $this->connection->update('stars_account', [
                         'password_hash' => $newHash,
                         'updated_at' => $this->now(),
-                    ], ['id' => (int) $account['id']]);
+                    ], ['id' => $accountId]);
                 }
             }
 
-            return $this->authenticatedResponse((int) $account['id']);
+            // Accounts created by the earlier game-token model receive their user token at first login.
+            if (trim((string) ($account['client_token_hash'] ?? '')) === '') {
+                $clientToken = $this->access->randomClientToken();
+                $this->connection->update('stars_account', [
+                    'client_token_hash' => hash('sha256', $clientToken),
+                    'client_token_last_four' => substr($clientToken, -4),
+                    'client_token_created_at' => $this->now(),
+                    'updated_at' => $this->now(),
+                ], ['id' => $accountId]);
+                $mailWarning = $this->sendClientTokenEmail($email, $displayName, $clientToken);
+            }
+
+            $session = $this->access->createWebSession($accountId);
+            $resolved = new ResolvedAccountAccess($accountId, $email, $displayName, true, $session['token']);
+            $response = new JsonResponse($this->profile($resolved, $mailWarning));
+
+            return $this->withSessionCookie($response, $session['token'], $session['expiresAt'], $request);
         } catch (AccountInputException $exception) {
             return $this->error($exception->getMessage(), $exception->statusCode);
         } catch (Throwable $exception) {
@@ -137,74 +139,97 @@ final class AccountController extends AbstractController
     public function me(Request $request): JsonResponse
     {
         try {
-            $accountId = $this->authenticatedAccountId($request);
-
-            return new JsonResponse([
-                'account' => $this->loadAccount($accountId),
-                'games' => $this->loadGames($accountId),
-            ]);
-        } catch (AccountInputException $exception) {
+            return new JsonResponse($this->profile($this->access->resolve($request)));
+        } catch (AccountAccessException $exception) {
             return $this->error($exception->getMessage(), $exception->statusCode);
         } catch (Throwable $exception) {
             return $this->serverError($exception);
         }
     }
 
-    public function linkGame(Request $request): JsonResponse
+    public function directLogin(Request $request): JsonResponse
     {
         try {
-            $accountId = $this->authenticatedAccountId($request);
+            $resolved = $this->access->resolve($request);
+            if ($resolved->usesWebSession) {
+                return $this->error('Use a client token for direct client access.', Response::HTTP_BAD_REQUEST);
+            }
+
+            return new JsonResponse($this->profile($resolved));
+        } catch (AccountAccessException $exception) {
+            return $this->error($exception->getMessage(), $exception->statusCode);
+        } catch (Throwable $exception) {
+            return $this->serverError($exception);
+        }
+    }
+
+    public function joinGame(Request $request): JsonResponse
+    {
+        try {
+            $resolved = $this->access->resolve($request);
+            $this->access->requireWebWrite($request, $resolved);
             $payload = $this->jsonPayload($request);
             $gameId = $this->requiredPositiveInt($payload, 'gameId');
-            $playerId = $this->requiredPositiveInt($payload, 'playerId');
-            $gameToken = $this->requiredString($payload, 'gameToken', 16, 4096);
-            $player = $this->verifyPlayerToken($gameId, $playerId, $gameToken);
-            $account = $this->loadAccount($accountId);
+            $invitationCode = $this->requiredString($payload, 'invitationCode', 16, 4096);
 
-            $existingOwner = $this->connection->fetchOne(
+            $existing = $this->connection->fetchAssociative(
+                'SELECT id, player_id FROM stars_account_game_access WHERE account_id = :accountId AND game_id = :gameId ORDER BY id LIMIT 1',
+                ['accountId' => $resolved->accountId, 'gameId' => $gameId],
+            );
+            if ($existing !== false) {
+                return new JsonResponse($this->profile($resolved, 'This account already participates in the game.'));
+            }
+
+            $player = $this->findPlayerByInvitation($gameId, $invitationCode);
+            $playerId = (int) $player['id'];
+            $ownerId = $this->connection->fetchOne(
                 'SELECT account_id FROM stars_account_game_access WHERE player_id = :playerId',
                 ['playerId' => $playerId],
             );
-            if ($existingOwner !== false && (int) $existingOwner !== $accountId) {
-                return $this->error('This player is already linked to another account.', Response::HTTP_CONFLICT);
+            if ($ownerId !== false && (int) $ownerId !== $resolved->accountId) {
+                return $this->error('This invitation has already been accepted by another account.', Response::HTTP_CONFLICT);
             }
 
-            $existingAccess = $this->connection->fetchOne(
-                'SELECT id FROM stars_account_game_access WHERE account_id = :accountId AND player_id = :playerId',
-                ['accountId' => $accountId, 'playerId' => $playerId],
-            );
-
-            $values = [
-                'game_id' => $gameId,
-                'token_ciphertext' => $this->encryptToken($gameToken),
-                'token_last_four' => substr($gameToken, -4),
-            ];
-
-            if ($existingAccess === false) {
-                $this->connection->insert('stars_account_game_access', $values + [
-                    'account_id' => $accountId,
+            if ($ownerId === false) {
+                $this->connection->insert('stars_account_game_access', [
+                    'account_id' => $resolved->accountId,
+                    'game_id' => $gameId,
                     'player_id' => $playerId,
+                    'token_ciphertext' => $this->vault->encrypt($invitationCode),
+                    'token_last_four' => substr($invitationCode, -4),
                     'created_at' => $this->now(),
                 ]);
-            } else {
-                $this->connection->update('stars_account_game_access', $values, ['id' => (int) $existingAccess]);
             }
 
-            $mailWarning = $this->sendAccessEmail(
-                (string) $account['email'],
-                (string) $account['displayName'],
-                $gameId,
-                $playerId,
-                $gameToken,
-                $player,
-            );
+            return new JsonResponse($this->profile($resolved));
+        } catch (AccountInputException|AccountAccessException $exception) {
+            return $this->error($exception->getMessage(), $exception->statusCode);
+        } catch (Throwable $exception) {
+            return $this->serverError($exception);
+        }
+    }
 
-            return new JsonResponse([
-                'account' => $account,
-                'games' => $this->loadGames($accountId),
-                'mailWarning' => $mailWarning,
-            ]);
-        } catch (AccountInputException $exception) {
+    public function rotateClientToken(Request $request): JsonResponse
+    {
+        try {
+            $resolved = $this->access->resolve($request);
+            $this->access->requireWebWrite($request, $resolved);
+            $clientToken = $this->access->randomClientToken();
+
+            $mailWarning = $this->sendClientTokenEmail($resolved->email, $resolved->displayName, $clientToken);
+            if ($mailWarning !== null) {
+                return $this->error($mailWarning, Response::HTTP_BAD_GATEWAY);
+            }
+
+            $this->connection->update('stars_account', [
+                'client_token_hash' => hash('sha256', $clientToken),
+                'client_token_last_four' => substr($clientToken, -4),
+                'client_token_created_at' => $this->now(),
+                'updated_at' => $this->now(),
+            ], ['id' => $resolved->accountId]);
+
+            return new JsonResponse($this->profile($resolved, 'A new client token was sent to your email address.'));
+        } catch (AccountAccessException $exception) {
             return $this->error($exception->getMessage(), $exception->statusCode);
         } catch (Throwable $exception) {
             return $this->serverError($exception);
@@ -214,14 +239,213 @@ final class AccountController extends AbstractController
     public function logout(Request $request): JsonResponse
     {
         try {
-            $token = $this->accountSessionToken($request);
-            if ($token !== '') {
-                $this->connection->delete('stars_account_session', ['token_hash' => hash('sha256', $token)]);
-            }
+            $this->access->revokeWebSession($request);
+            $response = new JsonResponse(null, Response::HTTP_NO_CONTENT);
+            $response->headers->setCookie(Cookie::create(
+                AccountAccessService::COOKIE_NAME,
+                '',
+                new DateTimeImmutable('-1 day'),
+                '/',
+                null,
+                $request->isSecure(),
+                true,
+                false,
+                Cookie::SAMESITE_LAX,
+            ));
 
-            return new JsonResponse(null, Response::HTTP_NO_CONTENT);
+            return $response;
         } catch (Throwable $exception) {
             return $this->serverError($exception);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function profile(ResolvedAccountAccess $resolved, ?string $notice = null): array
+    {
+        $account = $this->connection->fetchAssociative(
+            'SELECT id, email, display_name, client_token_last_four, client_token_created_at FROM stars_account WHERE id = :id',
+            ['id' => $resolved->accountId],
+        );
+        if ($account === false) {
+            throw new AccountAccessException('Account not found.');
+        }
+
+        return [
+            'account' => [
+                'id' => (int) $account['id'],
+                'email' => (string) $account['email'],
+                'displayName' => (string) $account['display_name'],
+                'clientTokenLastFour' => (string) ($account['client_token_last_four'] ?? ''),
+                'clientTokenCreatedAt' => $account['client_token_created_at'] !== null
+                    ? (new DateTimeImmutable((string) $account['client_token_created_at']))->format(DATE_ATOM)
+                    : null,
+            ],
+            'games' => $this->loadGames($resolved->accountId),
+            'csrfToken' => $this->access->csrfToken($resolved),
+            'authMode' => $resolved->usesWebSession ? 'web' : 'direct',
+            'notice' => $notice,
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function loadGames(int $accountId): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT game_id, player_id FROM stars_account_game_access WHERE account_id = :accountId ORDER BY game_id, player_id',
+            ['accountId' => $accountId],
+        );
+
+        $games = [];
+        foreach ($rows as $row) {
+            $gameId = (int) $row['game_id'];
+            $playerId = (int) $row['player_id'];
+            $games[] = [
+                'gameId' => $gameId,
+                'playerId' => $playerId,
+                'turnNumber' => $this->currentTurnNumber($gameId),
+                'label' => $this->gameLabel($gameId),
+                'playerLabel' => $this->playerLabel($playerId),
+            ];
+        }
+
+        return $games;
+    }
+
+    /** @return array<string, mixed> */
+    private function findPlayerByInvitation(int $gameId, string $invitationCode): array
+    {
+        $columns = array_change_key_case($this->connection->createSchemaManager()->listTableColumns('stars_player'), CASE_LOWER);
+        $tokenColumn = null;
+        foreach (['access_token_hash', 'token_hash', 'api_token_hash'] as $candidate) {
+            if (isset($columns[$candidate])) {
+                $tokenColumn = $candidate;
+                break;
+            }
+        }
+        if ($tokenColumn === null) {
+            foreach (array_keys($columns) as $candidate) {
+                if (str_contains($candidate, 'token') && str_contains($candidate, 'hash')) {
+                    $tokenColumn = $candidate;
+                    break;
+                }
+            }
+        }
+        if ($tokenColumn === null) {
+            throw new \RuntimeException('No token hash column was found in stars_player.');
+        }
+
+        $players = $this->connection->fetchAllAssociative(
+            'SELECT * FROM stars_player WHERE game_id = :gameId ORDER BY id',
+            ['gameId' => $gameId],
+        );
+        $expectedHex = hash('sha256', $invitationCode);
+        $expectedRaw = hash('sha256', $invitationCode, true);
+
+        foreach ($players as $player) {
+            $stored = (string) ($player[$tokenColumn] ?? '');
+            $matchesHex = strlen($stored) === 64 && ctype_xdigit($stored) && hash_equals(strtolower($stored), $expectedHex);
+            $matchesRaw = strlen($stored) === 32 && hash_equals($stored, $expectedRaw);
+            if ($matchesHex || $matchesRaw) {
+                return $player;
+            }
+        }
+
+        throw new AccountInputException('The game ID or invitation code is invalid.', Response::HTTP_UNAUTHORIZED);
+    }
+
+    private function currentTurnNumber(int $gameId): int
+    {
+        try {
+            return max(1, (int) $this->connection->fetchOne(
+                'SELECT MAX(turn_number) FROM stars_turn WHERE game_id = :gameId',
+                ['gameId' => $gameId],
+            ));
+        } catch (Throwable) {
+            return 1;
+        }
+    }
+
+    private function gameLabel(int $gameId): string
+    {
+        try {
+            $game = $this->connection->fetchAssociative('SELECT * FROM stars_game WHERE id = :id', ['id' => $gameId]);
+            if ($game !== false) {
+                foreach (['name', 'title'] as $column) {
+                    if (isset($game[$column]) && trim((string) $game[$column]) !== '') {
+                        return (string) $game[$column];
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return sprintf('Game %d', $gameId);
+    }
+
+    private function playerLabel(int $playerId): string
+    {
+        try {
+            $player = $this->connection->fetchAssociative('SELECT * FROM stars_player WHERE id = :id', ['id' => $playerId]);
+            if ($player !== false) {
+                foreach (['display_name', 'name', 'email'] as $column) {
+                    if (isset($player[$column]) && trim((string) $player[$column]) !== '') {
+                        return (string) $player[$column];
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return sprintf('Player %d', $playerId);
+    }
+
+    private function sendClientTokenEmail(string $address, string $displayName, string $clientToken): ?string
+    {
+        $baseUrl = rtrim($this->environmentValue('STARS_FRONTEND_BASE_URL', ''), '/');
+        $from = $this->environmentValue('STARS_MAILER_FROM', 'no-reply@example.invalid');
+        $text = <<<TEXT
+Hello {$displayName},
+
+Your Stars Rekindled account is ready.
+
+Web player login
+----------------
+Open: {$baseUrl}
+Email: {$address}
+Log in with your email address and password. The web player uses the same account permissions as another client.
+
+Access from another client
+--------------------------
+API base: {$baseUrl}
+Client token: {$clientToken}
+
+The client token belongs to your user account and works across all games you have joined.
+It does not belong to one specific game.
+
+Discover account and games:
+GET {$baseUrl}/stars/api/account/direct-login
+Authorization: Bearer {$clientToken}
+
+Play a game:
+GET {$baseUrl}/stars/api/account/games/{gameId}/turns/{turnNumber}
+Authorization: Bearer {$clientToken}
+
+Draft, submit and reopen use the same URL with /draft, /submit or /reopen.
+Keep this token private. Generate a new token from the web account screen if it is exposed.
+TEXT;
+
+        try {
+            $this->mailer->send(
+                (new Email())
+                    ->from($from)
+                    ->to($address)
+                    ->subject('Your Stars Rekindled client token')
+                    ->text($text),
+            );
+
+            return null;
+        } catch (Throwable $exception) {
+            return 'The account was saved, but the client-token email could not be sent: '.$exception->getMessage();
         }
     }
 
@@ -229,12 +453,10 @@ final class AccountController extends AbstractController
     private function jsonPayload(Request $request): array
     {
         try {
-            $payload = $request->toArray();
+            return $request->toArray();
         } catch (Throwable) {
             throw new AccountInputException('The request body must contain valid JSON.');
         }
-
-        return $payload;
     }
 
     private function requiredString(array $payload, string $field, int $minimum, int $maximum): string
@@ -268,288 +490,32 @@ final class AccountController extends AbstractController
         return $value;
     }
 
-    /** @return array<string, mixed> */
-    private function verifyPlayerToken(int $gameId, int $playerId, string $token): array
-    {
-        $player = $this->connection->fetchAssociative(
-            'SELECT * FROM stars_player WHERE id = :playerId',
-            ['playerId' => $playerId],
-        );
+    private function withSessionCookie(
+        JsonResponse $response,
+        string $token,
+        DateTimeImmutable $expiresAt,
+        Request $request,
+    ): JsonResponse {
+        $response->headers->setCookie(Cookie::create(
+            AccountAccessService::COOKIE_NAME,
+            $token,
+            $expiresAt,
+            '/',
+            null,
+            $request->isSecure(),
+            true,
+            false,
+            Cookie::SAMESITE_LAX,
+        ));
 
-        if ($player === false || (int) ($player['game_id'] ?? 0) !== $gameId) {
-            throw new AccountInputException('Unknown game or player.', Response::HTTP_UNAUTHORIZED);
-        }
-
-        $hashColumn = null;
-        foreach (['access_token_hash', 'token_hash', 'api_token_hash'] as $candidate) {
-            if (array_key_exists($candidate, $player)) {
-                $hashColumn = $candidate;
-                break;
-            }
-        }
-        if ($hashColumn === null) {
-            foreach (array_keys($player) as $candidate) {
-                $normalized = mb_strtolower((string) $candidate);
-                if (str_contains($normalized, 'token') && str_contains($normalized, 'hash')) {
-                    $hashColumn = (string) $candidate;
-                    break;
-                }
-            }
-        }
-        if ($hashColumn === null) {
-            throw new \RuntimeException('No token hash column was found in stars_player.');
-        }
-
-        $storedHashRaw = (string) $player[$hashColumn];
-        $storedHash = mb_strtolower(trim($storedHashRaw));
-        $hexHash = hash('sha256', $token);
-        $binaryHash = hash('sha256', $token, true);
-        $matchesHex = strlen($storedHash) === 64 && hash_equals($storedHash, $hexHash);
-        $matchesBinary = strlen($storedHashRaw) === 32 && hash_equals($storedHashRaw, $binaryHash);
-        if (!$matchesHex && !$matchesBinary) {
-            throw new AccountInputException('The game access token is invalid.', Response::HTTP_UNAUTHORIZED);
-        }
-
-        return $player;
+        return $response;
     }
-
-    private function authenticatedResponse(int $accountId, ?string $mailWarning = null, int $status = Response::HTTP_OK): JsonResponse
-    {
-        $sessionToken = bin2hex(random_bytes(32));
-        $now = new DateTimeImmutable();
-        $expiresAt = $now->add(new DateInterval(self::SESSION_TTL));
-
-        $this->connection->insert('stars_account_session', [
-            'account_id' => $accountId,
-            'token_hash' => hash('sha256', $sessionToken),
-            'created_at' => $now->format('Y-m-d H:i:s'),
-            'last_used_at' => $now->format('Y-m-d H:i:s'),
-            'expires_at' => $expiresAt->format('Y-m-d H:i:s'),
-        ]);
-
-        return new JsonResponse([
-            'sessionToken' => $sessionToken,
-            'expiresAt' => $expiresAt->format(DATE_ATOM),
-            'account' => $this->loadAccount($accountId),
-            'games' => $this->loadGames($accountId),
-            'mailWarning' => $mailWarning,
-        ], $status);
-    }
-
-    private function authenticatedAccountId(Request $request): int
-    {
-        $token = $this->accountSessionToken($request);
-        if ($token === '') {
-            throw new AccountInputException('Account login is required.', Response::HTTP_UNAUTHORIZED);
-        }
-
-        $session = $this->connection->fetchAssociative(
-            'SELECT id, account_id, expires_at FROM stars_account_session WHERE token_hash = :tokenHash',
-            ['tokenHash' => hash('sha256', $token)],
-        );
-
-        if ($session === false || new DateTimeImmutable((string) $session['expires_at']) <= new DateTimeImmutable()) {
-            if ($session !== false) {
-                $this->connection->delete('stars_account_session', ['id' => (int) $session['id']]);
-            }
-            throw new AccountInputException('The account session has expired.', Response::HTTP_UNAUTHORIZED);
-        }
-
-        $this->connection->update('stars_account_session', ['last_used_at' => $this->now()], ['id' => (int) $session['id']]);
-
-        return (int) $session['account_id'];
-    }
-
-    private function accountSessionToken(Request $request): string
-    {
-        $token = trim((string) $request->headers->get('X-Stars-Account-Token', ''));
-        if ($token !== '') {
-            return $token;
-        }
-
-        $authorization = trim((string) $request->headers->get('Authorization', ''));
-        if (preg_match('/^Account\s+(.+)$/i', $authorization, $matches) === 1) {
-            return trim($matches[1]);
-        }
-
-        return '';
-    }
-
-    /** @return array{id:int,email:string,displayName:string} */
-    private function loadAccount(int $accountId): array
-    {
-        $account = $this->connection->fetchAssociative(
-            'SELECT id, email, display_name FROM stars_account WHERE id = :id',
-            ['id' => $accountId],
-        );
-        if ($account === false) {
-            throw new AccountInputException('Account not found.', Response::HTTP_UNAUTHORIZED);
-        }
-
-        return [
-            'id' => (int) $account['id'],
-            'email' => (string) $account['email'],
-            'displayName' => (string) $account['display_name'],
-        ];
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function loadGames(int $accountId): array
-    {
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT game_id, player_id, token_ciphertext, token_last_four FROM stars_account_game_access WHERE account_id = :accountId ORDER BY game_id, player_id',
-            ['accountId' => $accountId],
-        );
-
-        $games = [];
-        foreach ($rows as $row) {
-            $gameId = (int) $row['game_id'];
-            $games[] = [
-                'gameId' => $gameId,
-                'playerId' => (int) $row['player_id'],
-                'turnNumber' => $this->currentTurnNumber($gameId),
-                'token' => $this->decryptToken((string) $row['token_ciphertext']),
-                'tokenLastFour' => (string) $row['token_last_four'],
-                'label' => $this->gameLabel($gameId),
-            ];
-        }
-
-        return $games;
-    }
-
-    private function currentTurnNumber(int $gameId): int
-    {
-        try {
-            $turn = $this->connection->fetchOne(
-                'SELECT MAX(turn_number) FROM stars_turn WHERE game_id = :gameId',
-                ['gameId' => $gameId],
-            );
-
-            return max(1, (int) $turn);
-        } catch (Throwable) {
-            return 1;
-        }
-    }
-
-    private function gameLabel(int $gameId): string
-    {
-        try {
-            $game = $this->connection->fetchAssociative('SELECT * FROM stars_game WHERE id = :id', ['id' => $gameId]);
-            if ($game !== false) {
-                foreach (['name', 'title'] as $column) {
-                    if (isset($game[$column]) && trim((string) $game[$column]) !== '') {
-                        return (string) $game[$column];
-                    }
-                }
-            }
-        } catch (Throwable) {
-        }
-
-        return sprintf('Game %d', $gameId);
-    }
-
-    private function encryptToken(string $token): string
-    {
-        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $ciphertext = sodium_crypto_secretbox($token, $nonce, $this->encryptionKey());
-
-        return base64_encode($nonce.$ciphertext);
-    }
-
-    private function decryptToken(string $encoded): string
-    {
-        $decoded = base64_decode($encoded, true);
-        if ($decoded === false || strlen($decoded) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
-            throw new \RuntimeException('Stored game token is malformed.');
-        }
-
-        $nonce = substr($decoded, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $ciphertext = substr($decoded, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
-        $token = sodium_crypto_secretbox_open($ciphertext, $nonce, $this->encryptionKey());
-        if ($token === false) {
-            throw new \RuntimeException('Stored game token could not be decrypted.');
-        }
-
-        return $token;
-    }
-
-    private function encryptionKey(): string
-    {
-        $secret = (string) $this->parameters->get('kernel.secret');
-        if ($secret === '') {
-            throw new \RuntimeException('kernel.secret must be configured.');
-        }
-
-        return hash('sha256', 'stars-account-token:'.$secret, true);
-    }
-
-    /** @param array<string, mixed> $player */
-    private function sendAccessEmail(
-        string $emailAddress,
-        string $displayName,
-        int $gameId,
-        int $playerId,
-        string $gameToken,
-        array $player,
-    ): ?string {
-        $from = $this->environmentValue('STARS_MAILER_FROM', 'no-reply@example.invalid');
-        $baseUrl = rtrim($this->environmentValue('STARS_FRONTEND_BASE_URL', ''), '/');
-        $playerName = (string) ($player['display_name'] ?? $player['name'] ?? $displayName);
-
-        $text = <<<TEXT
-Hello {$displayName},
-
-Your Stars Rekindled account now has access to {$playerName}.
-
-Normal web login
-----------------
-Open: {$baseUrl}
-Log in with your email address and password. The game token is then used automatically behind the login.
-
-Access from another client
---------------------------
-API base: {$baseUrl}
-Game ID: {$gameId}
-Player ID: {$playerId}
-Access token: {$gameToken}
-
-Required game API headers:
-Authorization: Bearer {$gameToken}
-X-Stars-Player-Id: {$playerId}
-Content-Type: application/json
-
-Example status request for turn 1:
-curl -H 'Authorization: Bearer {$gameToken}' \
-     -H 'X-Stars-Player-Id: {$playerId}' \
-     '{$baseUrl}/stars/api/games/{$gameId}/turns/1'
-
-Keep this token private. Anyone with the token, game ID and player ID can act as this player.
-TEXT;
-
-        try {
-            $this->mailer->send(
-                (new Email())
-                    ->from($from)
-                    ->to($emailAddress)
-                    ->subject(sprintf('Stars Rekindled access — game %d, player %d', $gameId, $playerId))
-                    ->text($text),
-            );
-
-            return null;
-        } catch (Throwable $exception) {
-            return 'The account was created, but the access email could not be sent: '.$exception->getMessage();
-        }
-    }
-
 
     private function environmentValue(string $name, string $default): string
     {
         $value = $_ENV[$name] ?? $_SERVER[$name] ?? getenv($name);
-        if (!is_string($value) || trim($value) === '') {
-            return $default;
-        }
 
-        return trim($value);
+        return is_string($value) && trim($value) !== '' ? trim($value) : $default;
     }
 
     private function now(): string

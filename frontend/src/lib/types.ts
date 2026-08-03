@@ -1,6 +1,7 @@
-export type AppScreen = 'menu' | 'login' | 'game';
+export type AppScreen = 'login' | 'lobby' | 'game';
 export type GameSection = 'galaxy' | 'planets' | 'fleets' | 'research' | 'diplomacy' | 'report';
 export type Owner = 'player' | 'neutral' | 'crimson' | 'violet' | 'amber';
+export type AccountAuthMode = 'web' | 'direct';
 
 export interface ConnectionSettings {
   apiBase: string;
@@ -8,6 +9,47 @@ export interface ConnectionSettings {
   playerId: number;
   turnNumber: number;
   token: string;
+  authMode?: AccountAuthMode | 'demo';
+  clientToken?: string;
+  csrfToken?: string;
+}
+
+export interface AccountLoginInput {
+  email: string;
+  password: string;
+}
+
+export interface AccountRegistrationInput extends AccountLoginInput {
+  displayName: string;
+}
+
+export interface AccountIdentity {
+  id: number;
+  email: string;
+  displayName: string;
+  clientTokenLastFour: string;
+  clientTokenCreatedAt: string | null;
+}
+
+export interface AccountGameAccess {
+  gameId: number;
+  playerId: number;
+  turnNumber: number;
+  label: string;
+  playerLabel: string;
+}
+
+export interface AccountProfileResult {
+  account: AccountIdentity;
+  games: AccountGameAccess[];
+  csrfToken: string;
+  authMode: AccountAuthMode;
+  notice?: string | null;
+}
+
+export interface JoinGameInput {
+  gameId: number;
+  invitationCode: string;
 }
 
 export interface ResourceValue {
@@ -84,44 +126,4 @@ export interface PlayerOrders {
   production: ProductionOrder[];
   research?: ResearchOrder[];
   [key: string]: unknown;
-}
-
-export interface AccountLoginInput {
-  email: string;
-  password: string;
-}
-
-export interface AccountRegistrationInput extends AccountLoginInput {
-  displayName: string;
-  gameId: number;
-  playerId: number;
-  gameToken: string;
-}
-
-export interface AccountIdentity {
-  id: number;
-  email: string;
-  displayName: string;
-}
-
-export interface AccountGameAccess {
-  gameId: number;
-  playerId: number;
-  turnNumber: number;
-  token: string;
-  tokenLastFour: string;
-  label: string;
-}
-
-export interface AccountAuthResult {
-  sessionToken: string;
-  expiresAt: string;
-  account: AccountIdentity;
-  games: AccountGameAccess[];
-  mailWarning?: string | null;
-}
-
-export interface AccountProfileResult {
-  account: AccountIdentity;
-  games: AccountGameAccess[];
 }

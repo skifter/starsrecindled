@@ -1,17 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import '../app.css';
+  import AccountLobby from '$lib/screens/AccountLobby.svelte';
   import GameShell from '$lib/screens/GameShell.svelte';
   import LoginScreen from '$lib/screens/LoginScreen.svelte';
-  import MainMenu from '$lib/screens/MainMenu.svelte';
   import type {
-    AccountAuthResult,
     AccountGameAccess,
     AccountLoginInput,
     AccountProfileResult,
     AccountRegistrationInput,
     AppScreen,
     ConnectionSettings,
+    JoinGameInput,
     PlayerOrders
   } from '$lib/types';
 
@@ -20,36 +20,32 @@
     gameId: 1,
     playerId: 1,
     turnNumber: 1,
-    token: ''
+    token: '',
+    authMode: 'web'
   };
-
   const defaultOrders: PlayerOrders = { fleets: [], production: [] };
-  const accountSessionKey = 'stars.accountSession';
-  const accountGameTokenKey = 'stars.accountGameToken';
+  const directTokenKey = 'stars.clientToken';
+  const directApiBaseKey = 'stars.clientApiBase';
 
-  let screen: AppScreen = 'menu';
+  let screen: AppScreen = 'login';
   let connection: ConnectionSettings = { ...defaultConnection };
+  let profile: AccountProfileResult | null = null;
   let orders: PlayerOrders = { ...defaultOrders };
   let status: Record<string, unknown> | null = null;
   let busy = false;
-  let apiMessage = '';
   let loginError = '';
-  let hasSession = false;
+  let accountMessage = '';
+  let apiMessage = '';
   let demoMode = false;
-  let accountSessionToken = '';
+  let directClientToken = '';
+  let directApiBase = '';
 
   onMount(() => {
+    void initialize();
+  });
+
+  async function initialize(): Promise<void> {
     const params = new URLSearchParams(window.location.search);
-    accountSessionToken = sessionStorage.getItem(accountSessionKey) ?? localStorage.getItem(accountSessionKey) ?? '';
-
-    connection = {
-      apiBase: localStorage.getItem('stars.apiBase') ?? '',
-      gameId: Number(params.get('game') ?? localStorage.getItem('stars.gameId') ?? 1),
-      playerId: Number(params.get('player') ?? localStorage.getItem('stars.playerId') ?? 1),
-      turnNumber: Number(params.get('turn') ?? localStorage.getItem('stars.turnNumber') ?? 1),
-      token: sessionStorage.getItem(accountGameTokenKey) ?? localStorage.getItem('stars.token') ?? ''
-    };
-
     const savedOrders = localStorage.getItem('stars.orders');
     if (savedOrders) {
       try {
@@ -60,57 +56,41 @@
       }
     }
 
-    hasSession = accountSessionToken.length > 0 || connection.token.length > 0;
-    if (params.get('access') === '1') screen = 'login';
-    if (params.get('demo') === '1') openDemo();
-  });
-
-  function storeDirectConnection(remember: boolean): void {
-    const keys = ['stars.apiBase', 'stars.gameId', 'stars.playerId', 'stars.turnNumber', 'stars.token'];
-    if (!remember) {
-      keys.forEach((key) => localStorage.removeItem(key));
-      hasSession = accountSessionToken.length > 0;
+    if (params.get('demo') === '1') {
+      openDemo();
       return;
     }
-    localStorage.setItem('stars.apiBase', connection.apiBase);
-    localStorage.setItem('stars.gameId', String(connection.gameId));
-    localStorage.setItem('stars.playerId', String(connection.playerId));
-    localStorage.setItem('stars.turnNumber', String(connection.turnNumber));
-    localStorage.setItem('stars.token', connection.token);
-    hasSession = connection.token.length > 0 || accountSessionToken.length > 0;
-  }
 
-  function storeAccountSession(token: string, remember: boolean): void {
-    localStorage.removeItem(accountSessionKey);
-    sessionStorage.removeItem(accountSessionKey);
-    if (remember) localStorage.setItem(accountSessionKey, token);
-    else sessionStorage.setItem(accountSessionKey, token);
-    accountSessionToken = token;
-    hasSession = true;
-  }
+    try {
+      const restored = await fetchProfile('web', '', '');
+      profile = restored;
+      accountMessage = restored.notice ?? '';
+      screen = 'lobby';
+      return;
+    } catch {
+      // No web session. A direct token is kept only for this browser tab/session.
+    }
 
-  function activateAccountGame(access: AccountGameAccess): void {
-    connection = {
-      apiBase: '',
-      gameId: access.gameId,
-      playerId: access.playerId,
-      turnNumber: access.turnNumber,
-      token: access.token
-    };
+    const savedDirectToken = sessionStorage.getItem(directTokenKey) ?? '';
+    const savedDirectApiBase = sessionStorage.getItem(directApiBaseKey) ?? '';
+    if (savedDirectToken) {
+      try {
+        profile = await fetchProfile('direct', savedDirectApiBase, savedDirectToken);
+        directClientToken = savedDirectToken;
+        directApiBase = savedDirectApiBase;
+        screen = 'lobby';
+        return;
+      } catch {
+        sessionStorage.removeItem(directTokenKey);
+        sessionStorage.removeItem(directApiBaseKey);
+      }
+    }
 
-    localStorage.setItem('stars.gameId', String(access.gameId));
-    localStorage.setItem('stars.playerId', String(access.playerId));
-    localStorage.setItem('stars.turnNumber', String(access.turnNumber));
-    localStorage.removeItem('stars.token');
-    sessionStorage.setItem(accountGameTokenKey, access.token);
-  }
-
-  function updateOrders(next: PlayerOrders): void {
-    orders = next;
-    localStorage.setItem('stars.orders', JSON.stringify(next));
+    screen = 'login';
   }
 
   async function parseJsonResponse<T>(response: Response): Promise<T> {
+    if (response.status === 204) return undefined as T;
     let data: T & { error?: string };
     try {
       data = await response.json() as T & { error?: string };
@@ -121,12 +101,23 @@
     return data;
   }
 
-  async function accountRequest<T>(path: string, method = 'GET', body?: unknown, sessionToken = accountSessionToken): Promise<T> {
+  async function fetchProfile(mode: 'web' | 'direct', apiBase: string, clientToken: string): Promise<AccountProfileResult> {
+    const response = await fetch(`${apiBase}/stars/api/account/${mode === 'direct' ? 'direct-login' : 'me'}`, {
+      method: mode === 'direct' ? 'POST' : 'GET',
+      credentials: mode === 'web' ? 'include' : 'omit',
+      headers: mode === 'direct' ? { Authorization: `Bearer ${clientToken}` } : {}
+    });
+
+    return parseJsonResponse<AccountProfileResult>(response);
+  }
+
+  async function webAccountRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch(`/stars/api/account${path}`, {
       method,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(sessionToken ? { 'X-Stars-Account-Token': sessionToken } : {})
+        ...(method !== 'GET' && profile?.csrfToken ? { 'X-Stars-CSRF': profile.csrfToken } : {})
       },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
@@ -134,18 +125,124 @@
     return parseJsonResponse<T>(response);
   }
 
+  async function accountLogin(credentials: AccountLoginInput): Promise<void> {
+    busy = true;
+    loginError = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/login', 'POST', credentials);
+      directClientToken = '';
+      directApiBase = '';
+      accountMessage = profile.notice ?? '';
+      screen = 'lobby';
+    } catch (caught) {
+      loginError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function accountRegister(registration: AccountRegistrationInput): Promise<void> {
+    busy = true;
+    loginError = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/register', 'POST', registration);
+      directClientToken = '';
+      directApiBase = '';
+      accountMessage = profile.notice ?? 'Account created. Your personal client token was sent by email.';
+      screen = 'lobby';
+    } catch (caught) {
+      loginError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function directLogin(apiBase: string, clientToken: string): Promise<void> {
+    busy = true;
+    loginError = '';
+    try {
+      profile = await fetchProfile('direct', apiBase, clientToken);
+      directClientToken = clientToken;
+      directApiBase = apiBase;
+      sessionStorage.setItem(directTokenKey, clientToken);
+      sessionStorage.setItem(directApiBaseKey, apiBase);
+      accountMessage = profile.notice ?? '';
+      screen = 'lobby';
+    } catch (caught) {
+      loginError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function joinGame(input: JoinGameInput): Promise<void> {
+    if (!profile || profile.authMode !== 'web') return;
+    busy = true;
+    accountMessage = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/games/join', 'POST', input);
+      accountMessage = profile.notice ?? `Game ${input.gameId} was linked to your account.`;
+    } catch (caught) {
+      accountMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function rotateClientToken(): Promise<void> {
+    if (!profile || profile.authMode !== 'web') return;
+    busy = true;
+    accountMessage = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/token/rotate', 'POST', {});
+      accountMessage = profile.notice ?? 'A new client token was sent by email.';
+    } catch (caught) {
+      accountMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function logout(): Promise<void> {
+    if (profile?.authMode === 'web') {
+      try { await webAccountRequest<void>('/logout', 'POST', {}); } catch { /* Clear the client state anyway. */ }
+    }
+    sessionStorage.removeItem(directTokenKey);
+    sessionStorage.removeItem(directApiBaseKey);
+    directClientToken = '';
+    directApiBase = '';
+    profile = null;
+    connection = { ...defaultConnection };
+    accountMessage = '';
+    loginError = '';
+    screen = 'login';
+  }
+
+  function updateOrders(next: PlayerOrders): void {
+    orders = next;
+    localStorage.setItem('stars.orders', JSON.stringify(next));
+  }
+
   async function request(path = '', method = 'GET', body?: unknown): Promise<Record<string, unknown>> {
+    const apiBase = connection.apiBase;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const options: RequestInit = {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    };
+
+    if (connection.authMode === 'web') {
+      options.credentials = 'include';
+      if (method !== 'GET' && connection.csrfToken) headers['X-Stars-CSRF'] = connection.csrfToken;
+    } else if (connection.authMode === 'direct') {
+      options.credentials = 'omit';
+      headers.Authorization = `Bearer ${connection.clientToken ?? ''}`;
+    }
+
     const response = await fetch(
-      `${connection.apiBase}/stars/api/games/${connection.gameId}/turns/${connection.turnNumber}${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${connection.token}`,
-          'X-Stars-Player-Id': String(connection.playerId),
-          'Content-Type': 'application/json'
-        },
-        body: body === undefined ? undefined : JSON.stringify(body)
-      }
+      `${apiBase}/stars/api/account/games/${connection.gameId}/turns/${connection.turnNumber}${path}`,
+      options
     );
 
     return parseJsonResponse<Record<string, unknown>>(response);
@@ -169,145 +266,87 @@
       syncOrdersFromStatus(nextStatus);
       apiMessage = 'Turn status synchronized.';
       return true;
-    } catch (error) {
-      apiMessage = error instanceof Error ? error.message : String(error);
+    } catch (caught) {
+      apiMessage = caught instanceof Error ? caught.message : String(caught);
       return false;
     } finally {
       busy = false;
     }
   }
 
-  async function enterAccountGame(games: AccountGameAccess[], warning?: string | null): Promise<void> {
-    if (games.length === 0) throw new Error('This account is not linked to a game yet.');
-    activateAccountGame(games[0]);
+  async function playGame(game: AccountGameAccess): Promise<void> {
+    if (!profile) return;
+    connection = {
+      apiBase: profile.authMode === 'direct' ? directApiBase : '',
+      gameId: game.gameId,
+      playerId: game.playerId,
+      turnNumber: game.turnNumber,
+      token: '',
+      authMode: profile.authMode,
+      clientToken: profile.authMode === 'direct' ? directClientToken : undefined,
+      csrfToken: profile.csrfToken
+    };
     demoMode = false;
-    const connected = await loadStatus();
-    if (!connected) throw new Error(apiMessage);
-    if (warning) apiMessage = warning;
-    screen = 'game';
-  }
-
-  async function accountLogin(credentials: AccountLoginInput, remember: boolean): Promise<void> {
-    busy = true;
-    loginError = '';
-    try {
-      const result = await accountRequest<AccountAuthResult>('/login', 'POST', credentials, '');
-      storeAccountSession(result.sessionToken, remember);
-      await enterAccountGame(result.games, result.mailWarning);
-    } catch (error) {
-      loginError = error instanceof Error ? error.message : String(error);
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function accountRegister(registration: AccountRegistrationInput, remember: boolean): Promise<void> {
-    busy = true;
-    loginError = '';
-    try {
-      const result = await accountRequest<AccountAuthResult>('/register', 'POST', registration, '');
-      storeAccountSession(result.sessionToken, remember);
-      await enterAccountGame(result.games, result.mailWarning);
-    } catch (error) {
-      loginError = error instanceof Error ? error.message : String(error);
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function directLogin(nextConnection: ConnectionSettings, remember: boolean): Promise<void> {
-    connection = nextConnection;
-    demoMode = false;
-    loginError = '';
-    storeDirectConnection(remember);
+    status = null;
     const connected = await loadStatus();
     if (connected) screen = 'game';
-    else loginError = apiMessage;
-  }
-
-  async function continueSession(): Promise<void> {
-    loginError = '';
-    demoMode = false;
-
-    if (accountSessionToken) {
-      busy = true;
-      try {
-        const profile = await accountRequest<AccountProfileResult>('/me');
-        await enterAccountGame(profile.games);
-        return;
-      } catch (error) {
-        localStorage.removeItem(accountSessionKey);
-        sessionStorage.removeItem(accountSessionKey);
-        sessionStorage.removeItem(accountGameTokenKey);
-        accountSessionToken = '';
-        loginError = error instanceof Error ? error.message : String(error);
-      } finally {
-        busy = false;
-      }
-    }
-
-    if (!connection.token) {
-      screen = 'login';
-      return;
-    }
-
-    const connected = await loadStatus();
-    if (connected) screen = 'game';
-    else {
-      loginError = apiMessage;
-      screen = 'login';
-    }
+    else accountMessage = apiMessage;
   }
 
   function openDemo(): void {
     demoMode = true;
+    connection = { ...defaultConnection, authMode: 'demo' };
     status = null;
     apiMessage = 'Demonstration universe: orders are stored locally but are not sent to the server.';
     screen = 'game';
   }
 
   async function saveDraft(): Promise<void> {
+    if (demoMode) { apiMessage = 'Demo draft stored locally.'; return; }
     busy = true;
     apiMessage = '';
     try {
       await request('/draft', 'PUT', { orders });
       apiMessage = 'Draft saved on the server.';
       await loadStatus();
-    } catch (error) {
-      apiMessage = error instanceof Error ? error.message : String(error);
+    } catch (caught) {
+      apiMessage = caught instanceof Error ? caught.message : String(caught);
       busy = false;
     }
   }
 
   async function submitTurn(): Promise<void> {
+    if (demoMode) { apiMessage = 'Demo turn submitted locally.'; return; }
     busy = true;
     apiMessage = '';
     try {
       await request('/submit', 'POST', { orders });
       apiMessage = 'Turn submitted successfully.';
       await loadStatus();
-    } catch (error) {
-      apiMessage = error instanceof Error ? error.message : String(error);
+    } catch (caught) {
+      apiMessage = caught instanceof Error ? caught.message : String(caught);
       busy = false;
     }
   }
 
   async function reopenTurn(): Promise<void> {
+    if (demoMode) { apiMessage = 'Demo turn reopened locally.'; return; }
     busy = true;
     apiMessage = '';
     try {
       await request('/reopen', 'POST');
       apiMessage = 'Turn reopened.';
       await loadStatus();
-    } catch (error) {
-      apiMessage = error instanceof Error ? error.message : String(error);
+    } catch (caught) {
+      apiMessage = caught instanceof Error ? caught.message : String(caught);
       busy = false;
     }
   }
 
   function exitGame(): void {
-    screen = 'menu';
     apiMessage = '';
+    if (profile) screen = 'lobby';
+    else screen = 'login';
   }
 </script>
 
@@ -317,25 +356,25 @@
   <link rel="icon" href="/favicon.svg" />
 </svelte:head>
 
-{#if screen === 'menu'}
-  <MainMenu
-    {hasSession}
-    savedGameId={connection.gameId}
-    savedTurn={connection.turnNumber}
-    onContinue={continueSession}
-    onLogin={() => { loginError = ''; screen = 'login'; }}
-    onDemo={openDemo}
-  />
-{:else if screen === 'login'}
+{#if screen === 'login'}
   <LoginScreen
-    initial={connection}
     {busy}
     error={loginError}
-    onDirectSubmit={directLogin}
     onAccountLogin={accountLogin}
     onAccountRegister={accountRegister}
+    onDirectLogin={directLogin}
     onDemo={openDemo}
-    onBack={() => { loginError = ''; screen = 'menu'; }}
+  />
+{:else if screen === 'lobby' && profile}
+  <AccountLobby
+    {profile}
+    {busy}
+    message={accountMessage}
+    onPlay={playGame}
+    onJoin={joinGame}
+    onRotateToken={rotateClientToken}
+    onLogout={logout}
+    onDemo={openDemo}
   />
 {:else}
   <GameShell

@@ -8,17 +8,51 @@ stars_account_login:
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::login
   methods: [POST]
 
+stars_account_logout:
+  path: /stars/api/account/logout
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::logout
+  methods: [POST]
+
 stars_account_me:
   path: /stars/api/account/me
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::me
   methods: [GET]
 
-stars_account_link_game:
-  path: /stars/api/account/games
-  controller: Bellcom\StarsTurnBundle\Controller\AccountController::linkGame
+stars_account_direct_login:
+  path: /stars/api/account/direct-login
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::directLogin
   methods: [POST]
 
-stars_account_logout:
-  path: /stars/api/account/logout
-  controller: Bellcom\StarsTurnBundle\Controller\AccountController::logout
+stars_account_join_game:
+  path: /stars/api/account/games/join
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::joinGame
   methods: [POST]
+
+stars_account_rotate_client_token:
+  path: /stars/api/account/token/rotate
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::rotateClientToken
+  methods: [POST]
+
+stars_account_turn_status:
+  path: /stars/api/account/games/{gameId}/turns/{turnNumber}
+  controller: Bellcom\StarsTurnBundle\Controller\AccountGameProxyController::status
+  methods: [GET]
+  requirements: { gameId: '\d+', turnNumber: '\d+' }
+
+stars_account_turn_draft:
+  path: /stars/api/account/games/{gameId}/turns/{turnNumber}/draft
+  controller: Bellcom\StarsTurnBundle\Controller\AccountGameProxyController::draft
+  methods: [PUT]
+  requirements: { gameId: '\d+', turnNumber: '\d+' }
+
+stars_account_turn_submit:
+  path: /stars/api/account/games/{gameId}/turns/{turnNumber}/submit
+  controller: Bellcom\StarsTurnBundle\Controller\AccountGameProxyController::submit
+  methods: [POST]
+  requirements: { gameId: '\d+', turnNumber: '\d+' }
+
+stars_account_turn_reopen:
+  path: /stars/api/account/games/{gameId}/turns/{turnNumber}/reopen
+  controller: Bellcom\StarsTurnBundle\Controller\AccountGameProxyController::reopen
+  methods: [POST]
+  requirements: { gameId: '\d+', turnNumber: '\d+' }
