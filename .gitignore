@@ -6,3 +6,6 @@
 /frontend/build/
 .env.local
 .DS_Store
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
