@@ -1,0 +1,24 @@
+stars_account_register:
+  path: /stars/api/account/register
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::register
+  methods: [POST]
+
+stars_account_login:
+  path: /stars/api/account/login
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::login
+  methods: [POST]
+
+stars_account_me:
+  path: /stars/api/account/me
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::me
+  methods: [GET]
+
+stars_account_link_game:
+  path: /stars/api/account/games
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::linkGame
+  methods: [POST]
+
+stars_account_logout:
+  path: /stars/api/account/logout
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::logout
+  methods: [POST]

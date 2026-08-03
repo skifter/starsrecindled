@@ -1,0 +1,5 @@
+services:
+  Bellcom\StarsTurnBundle\Controller\AccountController:
+    autowire: true
+    autoconfigure: true
+    public: true

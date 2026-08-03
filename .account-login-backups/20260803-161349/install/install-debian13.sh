@@ -545,10 +545,8 @@ run_as_app composer \
 PACKAGE_ROOT="${RELEASE_ROOT}/vendor/skifter/starsrecindled"
 test -f "${PACKAGE_ROOT}/composer.json"
 test -f "${PACKAGE_ROOT}/examples/symfony/config/packages/stars_turn.yaml"
-test -f "${PACKAGE_ROOT}/examples/symfony/config/packages/stars_account.yaml"
 test -f "${PACKAGE_ROOT}/examples/symfony/config/packages/messenger.yaml"
 test -f "${PACKAGE_ROOT}/examples/symfony/config/routes/stars_turn.yaml"
-test -f "${PACKAGE_ROOT}/examples/symfony/config/routes/stars_account.yaml"
 
 CURRENT_STEP="konfiguration af Symfony-bundle"
 env BUNDLES_FILE="${RELEASE_ROOT}/config/bundles.php" "${PHP_BIN}" <<'PHP'
@@ -582,11 +580,6 @@ install \
 
 install \
     -o "${APP_USER}" -g "${APP_GROUP}" -m 0644 \
-    "${PACKAGE_ROOT}/examples/symfony/config/packages/stars_account.yaml" \
-    "${RELEASE_ROOT}/config/packages/stars_account.yaml"
-
-install \
-    -o "${APP_USER}" -g "${APP_GROUP}" -m 0644 \
     "${PACKAGE_ROOT}/examples/symfony/config/packages/doctrine_migrations.yaml" \
     "${RELEASE_ROOT}/config/packages/doctrine_migrations.yaml"
 
@@ -603,11 +596,6 @@ install \
     -o "${APP_USER}" -g "${APP_GROUP}" -m 0644 \
     "${PACKAGE_ROOT}/examples/symfony/config/routes/stars_turn.yaml" \
     "${RELEASE_ROOT}/config/routes/stars_turn.yaml"
-
-install \
-    -o "${APP_USER}" -g "${APP_GROUP}" -m 0644 \
-    "${PACKAGE_ROOT}/examples/symfony/config/routes/stars_account.yaml" \
-    "${RELEASE_ROOT}/config/routes/stars_account.yaml"
 
 cat > "${RELEASE_ROOT}/config/packages/stars_doctrine.yaml" <<'YAML'
 doctrine:
