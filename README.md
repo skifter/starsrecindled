@@ -110,3 +110,4 @@ engine skal tilføje en spiller-specifik projection/fog-of-war-service.
 https://github.com/sirgwain/craig-stars?utm_source=chatgpt.com
 https://starsautohost.org/gamesnew.htm
 https://github.com/ekolis/stars-nova
+https://turnbasedlovers.com/overview/vega-chronicle-strategy-4x/
