@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.1 - 2026-07-26
+- Added frontend demo
+
 ## 0.1.0 - 2026-07-26
 
 - Første Symfony 7.4/8.0-kompatible MVP.
