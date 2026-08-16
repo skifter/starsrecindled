@@ -205,6 +205,21 @@
     }
   }
 
+  async function leaveGame(game: AccountGameAccess): Promise<void> {
+    if (!profile || profile.authMode !== 'web') return;
+    busy = true;
+    accountMessage = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>(`/games/${game.gameId}/leave`, 'POST', {});
+      if (activeGame?.gameId === game.gameId) activeGame = null;
+      accountMessage = profile.notice ?? `You left ${game.label}.`;
+    } catch (caught) {
+      accountMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function acceptPendingInvitationLink(): Promise<void> {
     if (!profile || profile.authMode !== 'web') return;
     const token = sessionStorage.getItem(pendingInvitationKey) ?? '';
@@ -410,6 +425,7 @@
     message={accountMessage}
     onPlay={playGame}
     onJoin={joinGame}
+    onLeave={leaveGame}
     onRotateToken={rotateClientToken}
     onLogout={logout}
     onDemo={openDemo}

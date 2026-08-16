@@ -8,11 +8,13 @@
   export let message = '';
   export let onPlay: (game: AccountGameAccess) => void;
   export let onJoin: (input: JoinGameInput) => void;
+  export let onLeave: (game: AccountGameAccess) => void;
   export let onRotateToken: () => void;
   export let onLogout: () => void;
   export let onDemo: () => void;
 
   let selectedInvitationId = 0;
+  let leaveCandidate: AccountGameAccess | null = null;
 
   $: if (selectedInvitationId > 0 && !profile.invitations.some((invitation) => invitation.id === selectedInvitationId)) {
     selectedInvitationId = 0;
@@ -22,6 +24,13 @@
     event.preventDefault();
     if (selectedInvitationId < 1) return;
     onJoin({ invitationId: selectedInvitationId });
+  }
+
+  function confirmLeave(): void {
+    if (!leaveCandidate) return;
+    const game = leaveCandidate;
+    leaveCandidate = null;
+    onLeave(game);
   }
 </script>
 
@@ -60,7 +69,12 @@
                   <p>Game {game.gameId} · {game.playerLabel}</p>
                   <span>Turn {game.turnNumber}</span>
                 </div>
-                <button type="button" disabled={busy} onclick={() => onPlay(game)}><Icon name="play" size={18} /> Play</button>
+                <div class="game-actions">
+                  {#if profile.authMode === 'web'}
+                    <button class="leave-button" type="button" disabled={busy} onclick={() => (leaveCandidate = game)}><Icon name="close" size={17} /> Leave</button>
+                  {/if}
+                  <button class="play-button" type="button" disabled={busy} onclick={() => onPlay(game)}><Icon name="play" size={18} /> Play</button>
+                </div>
               </article>
             {/each}
           </div>
@@ -126,6 +140,20 @@
       </aside>
     </div>
   </div>
+
+  {#if leaveCandidate}
+    <div class="confirm-backdrop" role="presentation" onclick={() => (leaveCandidate = null)}>
+      <section class="confirm-dialog panel-cut" role="dialog" aria-modal="true" aria-labelledby="leave-game-title" onclick={(event) => event.stopPropagation()}>
+        <p class="eyebrow danger-eyebrow">Leave game</p>
+        <h2 id="leave-game-title">Leave “{leaveCandidate.label}”?</h2>
+        <p>Your account will lose access to this game. The player seat, submitted turns and game history are kept.</p>
+        <div class="confirm-actions">
+          <button class="cancel-button" type="button" disabled={busy} onclick={() => (leaveCandidate = null)}>Cancel</button>
+          <button class="confirm-leave-button" type="button" disabled={busy} onclick={confirmLeave}><Icon name="close" size={17} /> Leave game</button>
+        </div>
+      </section>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -154,8 +182,11 @@
   .game-data h2 { margin-bottom: .35rem; }
   .game-data p { margin: 0 0 .25rem; color: #8ea5b6; }
   .game-data span { color: #d0aa53; font-size: .8rem; }
-  .game-card button, .primary, .secondary, .demo { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: 0 .9rem; text-transform: uppercase; letter-spacing: .07em; }
-  .game-card button, .primary { border: 1px solid #39c5ff; background: rgba(11,58,84,.75); color: #8addff; }
+  .game-actions { display:flex; align-items:center; gap:.55rem; }
+  .game-actions button, .primary, .secondary, .demo { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: 0 .9rem; text-transform: uppercase; letter-spacing: .07em; }
+  .play-button, .primary { border: 1px solid #39c5ff; background: rgba(11,58,84,.75); color: #8addff; }
+  .leave-button { border:1px solid rgba(221,88,105,.5); background:rgba(84,20,31,.42); color:#ef9aa6; }
+  .leave-button:hover:not(:disabled) { border-color:rgba(245,108,124,.75); background:rgba(118,28,43,.56); color:#ffd0d6; }
   .secondary, .demo { border: 1px solid rgba(65,177,235,.38); background: rgba(4,19,32,.78); color: #80d5fb; }
   .demo { margin-top: 1rem; width: 100%; }
   .empty-state { min-height: 300px; display: grid; place-items: center; align-content: center; text-align: center; color: #5dcaff; }
@@ -174,6 +205,16 @@
   dl { font-size: .78rem; margin: .8rem 0; }
   dl div { display: flex; justify-content: space-between; padding: .45rem 0; border-bottom: 1px solid rgba(80,149,190,.1); }
   dt { color: #7892a5; } dd { margin: 0; color: #d6e5ee; }
+  .confirm-backdrop { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:1rem; background:rgba(0,5,10,.78); backdrop-filter:blur(4px); }
+  .confirm-dialog { width:min(470px,100%); padding:1.35rem; border:1px solid rgba(220,90,107,.38); background:linear-gradient(180deg,rgba(25,12,20,.98),rgba(5,15,25,.98)); box-shadow:0 24px 80px rgba(0,0,0,.55); }
+  .confirm-dialog h2 { font-size:1.25rem; }
+  .confirm-dialog p:not(.eyebrow) { color:#9eb0bc; line-height:1.55; }
+  .danger-eyebrow { color:#ef8795; }
+  .confirm-actions { display:flex; justify-content:flex-end; gap:.65rem; margin-top:1.1rem; }
+  .confirm-actions button { min-height:42px; padding:0 1rem; text-transform:uppercase; letter-spacing:.06em; }
+  .cancel-button { border:1px solid rgba(78,156,199,.28); background:rgba(4,19,32,.8); color:#88bcd5; }
+  .confirm-leave-button { display:flex; align-items:center; gap:.45rem; border:1px solid rgba(235,87,105,.7); background:rgba(116,25,39,.62); color:#ffd1d7; }
+  .confirm-leave-button:hover:not(:disabled) { background:rgba(153,33,50,.74); }
   @media (max-width: 900px) {
     .lobby-grid { grid-template-columns: 1fr; }
     .account-panel { grid-template-columns: 1fr 1fr; }
@@ -184,6 +225,7 @@
     .identity { display: none; }
     .account-panel { grid-template-columns: 1fr; }
     .game-card { grid-template-columns: 46px 1fr; }
-    .game-card button { grid-column: 1 / -1; width: 100%; }
+    .game-actions { grid-column:1 / -1; width:100%; }
+    .game-actions button { flex:1; }
   }
 </style>

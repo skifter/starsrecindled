@@ -185,6 +185,39 @@ final class AccountController extends AbstractController
         }
     }
 
+    public function leaveGame(Request $request, int $gameId): JsonResponse
+    {
+        try {
+            $resolved = $this->access->resolve($request);
+            $this->access->requireWebWrite($request, $resolved);
+            if ($gameId < 1) {
+                throw new AccountInputException('gameId must be a positive integer.');
+            }
+
+            $linkedPlayer = $this->connection->fetchOne(
+                'SELECT player_id FROM stars_account_game_access WHERE account_id = :accountId AND game_id = :gameId ORDER BY id LIMIT 1',
+                ['accountId' => $resolved->accountId, 'gameId' => $gameId],
+            );
+            if ($linkedPlayer === false) {
+                throw new AccountInputException('This account is not linked to the requested game.', Response::HTTP_NOT_FOUND);
+            }
+
+            $this->connection->delete('stars_account_game_access', [
+                'account_id' => $resolved->accountId,
+                'game_id' => $gameId,
+            ]);
+
+            return new JsonResponse($this->profile(
+                $resolved,
+                sprintf('You left %s. The player seat and game history were kept.', $this->gameLabel($gameId)),
+            ));
+        } catch (AccountInputException|AccountAccessException $exception) {
+            return $this->error($exception->getMessage(), $exception->statusCode);
+        } catch (Throwable $exception) {
+            return $this->serverError($exception);
+        }
+    }
+
     public function acceptInvitationLink(Request $request): JsonResponse
     {
         try {

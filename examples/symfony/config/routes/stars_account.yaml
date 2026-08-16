@@ -28,6 +28,12 @@ stars_account_join_game:
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::joinGame
   methods: [POST]
 
+stars_account_leave_game:
+  path: /stars/api/account/games/{gameId}/leave
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::leaveGame
+  methods: [POST]
+  requirements: { gameId: '\d+' }
+
 stars_account_accept_invitation_link:
   path: /stars/api/account/invitations/accept-link
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::acceptInvitationLink
