@@ -37,6 +37,14 @@
 
   function pointerDown(event: PointerEvent): void {
     if (event.button !== 0) return;
+
+    const target = event.target;
+    if (target instanceof Element && target.closest('.system')) {
+      dragging = false;
+      moved = false;
+      return;
+    }
+
     dragging = true;
     moved = false;
     dragStartX = event.clientX;
