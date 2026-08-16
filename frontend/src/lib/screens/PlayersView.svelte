@@ -1,10 +1,10 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
-  import type { AccountGameAccess, GamePlayerSummary } from '../types';
+  import type { AccountGameAccess, AccountTurnStatus, AccountTurnStatusPlayer, GamePlayerSummary } from '../types';
   import { APP_VERSION } from '../version';
 
   export let game: AccountGameAccess | null = null;
-  export let status: Record<string, unknown> | null = null;
+  export let status: AccountTurnStatus | null = null;
   export let demoMode = false;
 
   const demoPlayers: GamePlayerSummary[] = [
@@ -18,16 +18,22 @@
   $: activePlayers = players.filter((player) => player.active).length;
   $: currentPlayerId = game?.playerId ?? 1;
   $: gameName = game?.label ?? (demoMode ? 'Demonstration universe' : 'Current game');
-  $: turnNumber = game?.turnNumber ?? 1;
+  $: turnNumber = demoMode ? (game?.turnNumber ?? 1) : (status?.turn.number ?? game?.turnNumber ?? 1);
+  $: turnStatus = demoMode ? 'demo' : (status?.turn.status ?? 'loading');
+  $: turnPlayers = demoMode ? [] : (status?.players ?? []);
+  $: submittedCount = turnPlayers.filter((player) => player.submitted).length;
 
-  function ownTurnState(): string {
-    const you = status?.you;
-    if (!you || typeof you !== 'object') return 'Connected';
-    const row = you as Record<string, unknown>;
-    if (typeof row.status === 'string' && row.status.trim() !== '') return row.status;
-    if (row.submitted === true) return 'Submitted';
-    if (row.submitted === false) return 'Your turn';
-    return 'Connected';
+  function turnPlayer(playerId: number): AccountTurnStatusPlayer | undefined {
+    return turnPlayers.find((player) => player.id === playerId);
+  }
+
+  function turnState(playerId: number): string {
+    if (demoMode) return playerId === currentPlayerId ? 'Your turn' : 'Active';
+    const player = turnPlayer(playerId);
+    if (!player) return 'Connected';
+    if (player.submitted) return 'Submitted';
+    if (turnStatus !== 'open') return turnStatus.charAt(0).toUpperCase() + turnStatus.slice(1);
+    return playerId === currentPlayerId ? 'Your turn' : 'Waiting';
   }
 </script>
 
@@ -48,11 +54,11 @@
     </article>
     <article class="summary-card panel-cut">
       <Icon name="calendar" size={24} />
-      <span><small>Turn</small><strong>{turnNumber}</strong></span>
+      <span><small>Turn</small><strong>{turnNumber} · {turnStatus.toUpperCase()}</strong></span>
     </article>
     <article class="summary-card panel-cut">
       <Icon name="user" size={24} />
-      <span><small>Players</small><strong>{activePlayers} active / {players.length} total</strong></span>
+      <span><small>Players</small><strong>{activePlayers} active · {demoMode ? 'demo' : `${submittedCount}/${turnPlayers.length || players.length} submitted`}</strong></span>
     </article>
     <article class="summary-card panel-cut">
       <Icon name="shield" size={24} />
@@ -62,14 +68,14 @@
 
   <div class="players-table panel-cut">
     <div class="player-row table-head">
-      <span>Seat</span><span>Player</span><span>Status</span><span>Diplomacy</span>
+      <span>Seat</span><span>Player</span><span>Turn status</span><span>Diplomacy</span>
     </div>
     {#if players.length > 0}
       {#each players as player}
         <article class="player-row" class:you={player.playerId === currentPlayerId}>
           <span class="seat">#{player.playerId}</span>
           <span class="player-name"><Icon name="user" size={19} /><strong>{player.displayName}</strong>{#if player.playerId === currentPlayerId}<small>You</small>{/if}</span>
-          <span class:inactive={!player.active}>{player.playerId === currentPlayerId ? ownTurnState() : (player.active ? 'Active' : 'Inactive')}</span>
+          <span class:inactive={!player.active} class:submitted={turnPlayer(player.playerId)?.submitted === true}>{player.active ? turnState(player.playerId) : 'Inactive'}</span>
           <span class="diplomacy-state">{player.playerId === currentPlayerId ? 'Your empire' : 'Relations coming later'}</span>
         </article>
       {/each}
@@ -104,6 +110,7 @@
   .player-name strong { color:#dbeaf2; font-weight:500; }
   .player-name small { margin-left:.2rem; padding:.15rem .35rem; border:1px solid rgba(75,193,242,.24); color:#58caff; font-size:.55rem; text-transform:uppercase; letter-spacing:.08em; }
   .inactive { color:#667784; }
+  .submitted { color:#72d6a0; }
   .diplomacy-state { color:#758fa1; }
   .empty-state { min-height:220px; display:grid; place-items:center; align-content:center; gap:.5rem; color:#58caff; text-align:center; }
   .empty-state p { color:#7b95a7; }

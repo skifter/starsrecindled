@@ -144,3 +144,34 @@ export interface PlayerOrders {
   research?: ResearchOrder[];
   [key: string]: unknown;
 }
+
+export interface AccountTurnStatusGame {
+  id: number;
+  name: string;
+  current_turn: number;
+}
+
+export interface AccountTurnStatusTurn {
+  number: number;
+  status: string;
+  queued_at: string | null;
+  published_at: string | null;
+}
+
+export interface AccountTurnStatusPlayer {
+  id: number;
+  name: string;
+  submitted: boolean;
+  submitted_at: string | null;
+}
+
+export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
+  orders: PlayerOrders;
+}
+
+export interface AccountTurnStatus extends Record<string, unknown> {
+  game: AccountTurnStatusGame;
+  turn: AccountTurnStatusTurn;
+  players: AccountTurnStatusPlayer[];
+  you: AccountTurnStatusYou;
+}

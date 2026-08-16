@@ -9,6 +9,7 @@
     AccountLoginInput,
     AccountProfileResult,
     AccountRegistrationInput,
+    AccountTurnStatus,
     AppScreen,
     ConnectionSettings,
     JoinGameInput,
@@ -33,7 +34,7 @@
   let profile: AccountProfileResult | null = null;
   let activeGame: AccountGameAccess | null = null;
   let orders: PlayerOrders = { ...defaultOrders };
-  let status: Record<string, unknown> | null = null;
+  let status: AccountTurnStatus | null = null;
   let busy = false;
   let loginError = '';
   let accountMessage = '';
@@ -45,6 +46,12 @@
 
   onMount(() => {
     void initialize();
+
+    const pollTimer = window.setInterval(() => {
+      if (screen === 'game' && !demoMode && !busy) void loadStatus(true);
+    }, 10000);
+
+    return () => window.clearInterval(pollTimer);
   });
 
   async function initialize(): Promise<void> {
@@ -272,7 +279,7 @@
     localStorage.setItem('stars.orders', JSON.stringify(next));
   }
 
-  async function request(path = '', method = 'GET', body?: unknown): Promise<Record<string, unknown>> {
+  async function request<T = AccountTurnStatus>(path = '', method = 'GET', body?: unknown): Promise<T> {
     const apiBase = connection.apiBase;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const options: RequestInit = {
@@ -294,32 +301,49 @@
       options
     );
 
-    return parseJsonResponse<Record<string, unknown>>(response);
+    return parseJsonResponse<T>(response);
   }
 
-  function syncOrdersFromStatus(nextStatus: Record<string, unknown>): void {
-    const you = nextStatus.you;
-    if (!you || typeof you !== 'object') return;
-    const ownOrders = (you as Record<string, unknown>).orders;
-    if (!ownOrders || typeof ownOrders !== 'object') return;
-    const parsed = ownOrders as PlayerOrders;
+  function syncOrdersFromStatus(nextStatus: AccountTurnStatus): void {
+    const parsed = nextStatus.you.orders;
     if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) updateOrders(parsed);
   }
 
-  async function loadStatus(): Promise<boolean> {
-    busy = true;
-    apiMessage = '';
+  function moveToServerTurn(turnNumber: number): void {
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || turnNumber === connection.turnNumber) return;
+
+    connection = { ...connection, turnNumber };
+    if (activeGame) activeGame = { ...activeGame, turnNumber };
+    if (profile) {
+      profile = {
+        ...profile,
+        games: profile.games.map((game) => game.gameId === connection.gameId ? { ...game, turnNumber } : game)
+      };
+    }
+  }
+
+  async function loadStatus(silent = false): Promise<boolean> {
+    if (!silent) {
+      busy = true;
+      apiMessage = '';
+    }
+
     try {
-      const nextStatus = await request();
+      let nextStatus = await request<AccountTurnStatus>();
+      if (nextStatus.game.current_turn !== connection.turnNumber) {
+        moveToServerTurn(nextStatus.game.current_turn);
+        nextStatus = await request<AccountTurnStatus>();
+      }
+
       status = nextStatus;
       syncOrdersFromStatus(nextStatus);
-      apiMessage = 'Turn status synchronized.';
+      if (!silent) apiMessage = 'Turn status synchronized.';
       return true;
     } catch (caught) {
-      apiMessage = caught instanceof Error ? caught.message : String(caught);
+      if (!silent) apiMessage = caught instanceof Error ? caught.message : String(caught);
       return false;
     } finally {
-      busy = false;
+      if (!silent) busy = false;
     }
   }
 
@@ -358,10 +382,11 @@
     apiMessage = '';
     try {
       await request('/draft', 'PUT', { orders });
+      await loadStatus(true);
       apiMessage = 'Draft saved on the server.';
-      await loadStatus();
     } catch (caught) {
       apiMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
       busy = false;
     }
   }
@@ -372,10 +397,11 @@
     apiMessage = '';
     try {
       await request('/submit', 'POST', { orders });
-      apiMessage = 'Turn submitted successfully.';
-      await loadStatus();
+      await loadStatus(true);
+      apiMessage = 'Turn submitted successfully. Waiting for the remaining players.';
     } catch (caught) {
       apiMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
       busy = false;
     }
   }
@@ -386,10 +412,11 @@
     apiMessage = '';
     try {
       await request('/reopen', 'POST');
+      await loadStatus(true);
       apiMessage = 'Turn reopened.';
-      await loadStatus();
     } catch (caught) {
       apiMessage = caught instanceof Error ? caught.message : String(caught);
+    } finally {
       busy = false;
     }
   }
