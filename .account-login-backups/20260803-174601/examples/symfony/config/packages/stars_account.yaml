@@ -1,9 +1,0 @@
-doctrine:
-  dbal:
-    schema_filter: '~^(?!stars_account(?:$|_)).*$~'
-
-services:
-  Bellcom\StarsTurnBundle\Controller\AccountController:
-    autowire: true
-    autoconfigure: true
-    public: true
