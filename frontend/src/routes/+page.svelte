@@ -34,6 +34,7 @@
   let profile: AccountProfileResult | null = null;
   let activeGame: AccountGameAccess | null = null;
   let orders: PlayerOrders = { ...defaultOrders };
+  let ordersDirty = false;
   let status: AccountTurnStatus | null = null;
   let busy = false;
   let loginError = '';
@@ -274,9 +275,14 @@
     screen = 'login';
   }
 
-  function updateOrders(next: PlayerOrders): void {
+  function setOrders(next: PlayerOrders, dirty: boolean): void {
     orders = next;
+    ordersDirty = dirty;
     localStorage.setItem('stars.orders', JSON.stringify(next));
+  }
+
+  function updateOrders(next: PlayerOrders): void {
+    setOrders(next, true);
   }
 
   async function request<T = AccountTurnStatus>(path = '', method = 'GET', body?: unknown): Promise<T> {
@@ -304,9 +310,10 @@
     return parseJsonResponse<T>(response);
   }
 
-  function syncOrdersFromStatus(nextStatus: AccountTurnStatus): void {
+  function syncOrdersFromStatus(nextStatus: AccountTurnStatus, force = false): void {
+    if (ordersDirty && !force) return;
     const parsed = nextStatus.you.orders;
-    if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) updateOrders(parsed);
+    if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) setOrders(parsed, false);
   }
 
   function moveToServerTurn(turnNumber: number): void {
@@ -330,13 +337,15 @@
 
     try {
       let nextStatus = await request<AccountTurnStatus>();
+      let turnChanged = false;
       if (nextStatus.game.current_turn !== connection.turnNumber) {
         moveToServerTurn(nextStatus.game.current_turn);
         nextStatus = await request<AccountTurnStatus>();
+        turnChanged = true;
       }
 
       status = nextStatus;
-      syncOrdersFromStatus(nextStatus);
+      syncOrdersFromStatus(nextStatus, turnChanged);
       if (!silent) apiMessage = 'Turn status synchronized.';
       return true;
     } catch (caught) {
@@ -362,6 +371,7 @@
     };
     demoMode = false;
     status = null;
+    ordersDirty = false;
     const connected = await loadStatus();
     if (connected) screen = 'game';
     else accountMessage = apiMessage;
@@ -382,6 +392,7 @@
     apiMessage = '';
     try {
       await request('/draft', 'PUT', { orders });
+      ordersDirty = false;
       await loadStatus(true);
       apiMessage = 'Draft saved on the server.';
     } catch (caught) {
@@ -397,6 +408,7 @@
     apiMessage = '';
     try {
       await request('/submit', 'POST', { orders });
+      ordersDirty = false;
       await loadStatus(true);
       apiMessage = 'Turn submitted successfully. Waiting for the remaining players.';
     } catch (caught) {

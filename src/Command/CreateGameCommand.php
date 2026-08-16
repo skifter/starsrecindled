@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Command;
 
+use Bellcom\StarsTurnBundle\Domain\StartUniverseGenerator;
 use Bellcom\StarsTurnBundle\Entity\Game;
 use Bellcom\StarsTurnBundle\Entity\Player;
 use Bellcom\StarsTurnBundle\Entity\PlayerTurn;
@@ -64,14 +65,25 @@ final class CreateGameCommand extends Command
             $playersAndTokens[] = [$player, $token];
         }
 
-        $initialState = [
-            'year' => 2400,
-            'universe' => [
-                'planets' => [],
-                'fleets' => [],
-            ],
-        ];
-        $turn = new Turn($game, 1, $initialState);
+        // Assign database ids before the deterministic universe is generated. Fleet ownership
+        // uses the real player ids, which are also the ids used by submitted turn orders.
+        $this->entityManager->flush();
+
+        $universePlayers = [];
+        foreach ($playersAndTokens as [$player]) {
+            $playerId = $player->getId() ?? throw new \LogicException('Spilleren mangler id efter flush.');
+            $universePlayers[] = ['id' => $playerId, 'name' => $player->getDisplayName()];
+        }
+
+        $turnSeed = bin2hex(random_bytes(32));
+        $initialState = (new StartUniverseGenerator())->generate($universePlayers, $turnSeed);
+        $turn = new Turn(
+            $game,
+            1,
+            $initialState,
+            randomSeed: $turnSeed,
+            rulesVersion: 'rekindled-0.5.1',
+        );
         $this->entityManager->persist($turn);
 
         foreach ($playersAndTokens as [$player]) {
@@ -87,6 +99,11 @@ final class CreateGameCommand extends Command
 
         $io->success(sprintf('Spillet "%s" blev oprettet med id %d.', $game->getName(), $game->getId()));
         $io->table(['Player ID', 'Navn', 'E-mail', 'Token (vises kun nu)'], $rows);
+        $io->note(sprintf(
+            'Startunivers: %d systemer og %d startflåder.',
+            count($initialState['universe']['systems'] ?? []),
+            count($initialState['universe']['fleets'] ?? []),
+        ));
         $io->warning('Gem tokens sikkert. Databasen indeholder kun hashes.');
 
         return Command::SUCCESS;

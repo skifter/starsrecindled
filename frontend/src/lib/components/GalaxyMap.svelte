@@ -1,12 +1,15 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { routes, systems } from '../demo-data';
-  import type { StarSystem } from '../types';
+  import type { RouteLink, StarSystem } from '../types';
 
-  export let selectedId = 'aurelia';
+  export let systems: StarSystem[] = [];
+  export let routes: RouteLink[] = [];
+  export let plannedRoutes: RouteLink[] = [];
+  export let selectedId = '';
+  export let liveMode = false;
   export let onSelect: (system: StarSystem) => void;
 
-  const byId = new Map(systems.map((system) => [system.id, system]));
+  $: byId = new Map(systems.map((system) => [system.id, system]));
   let zoom = 1;
   let panX = 0;
   let panY = 0;
@@ -99,10 +102,12 @@
     <ellipse cx="260" cy="500" rx="220" ry="145" fill="#b57a20" opacity=".05" />
 
     <g transform={`translate(${panX} ${panY}) scale(${zoom})`}>
-      <path class="territory player" d="M165 142 C250 96 410 104 520 162 C613 212 618 335 570 428 C512 502 348 504 232 445 C150 398 107 267 165 142Z" />
-      <path class="territory crimson" d="M395 8 C520 -20 695 9 716 110 C663 165 565 168 486 146 C430 112 400 67 395 8Z" />
-      <path class="territory violet" d="M626 122 C774 88 955 120 1004 274 L1004 520 C875 554 741 507 670 438 C610 358 580 217 626 122Z" />
-      <path class="territory amber" d="M54 390 C180 363 328 420 354 548 C282 636 118 648 20 564 C1 491 15 435 54 390Z" />
+      {#if !liveMode}
+        <path class="territory player" d="M165 142 C250 96 410 104 520 162 C613 212 618 335 570 428 C512 502 348 504 232 445 C150 398 107 267 165 142Z" />
+        <path class="territory crimson" d="M395 8 C520 -20 695 9 716 110 C663 165 565 168 486 146 C430 112 400 67 395 8Z" />
+        <path class="territory violet" d="M626 122 C774 88 955 120 1004 274 L1004 520 C875 554 741 507 670 438 C610 358 580 217 626 122Z" />
+        <path class="territory amber" d="M54 390 C180 363 328 420 354 548 C282 636 118 648 20 564 C1 491 15 435 54 390Z" />
+      {/if}
 
       {#each routes as route}
         {@const from = starPoint(route.from)}
@@ -110,7 +115,12 @@
         <line class:hostile={route.kind === 'hostile'} class="route" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
       {/each}
 
-      <path class="planned-route" d="M490 298 Q545 350 680 564" />
+      {#if !liveMode}<path class="planned-route" d="M490 298 Q545 350 680 564" />{/if}
+      {#each plannedRoutes as route}
+        {@const from = starPoint(route.from)}
+        {@const to = starPoint(route.to)}
+        <line class="planned-route" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+      {/each}
 
       {#each systems as system}
         {@const x = system.x * 10}
@@ -137,7 +147,7 @@
         </g>
       {/each}
 
-      <g class="scan-marker" transform="translate(592 370)"><circle r="8"/><path d="M-15 0h30M0-15v30"/></g>
+      {#if !liveMode}<g class="scan-marker" transform="translate(592 370)"><circle r="8"/><path d="M-15 0h30M0-15v30"/></g>{/if}
     </g>
   </svg>
 
@@ -153,7 +163,11 @@
     <span>{Math.round(zoom * 100)}%</span>
   </div>
 
-  <div class="map-legend"><span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span></div>
+  {#if systems.length === 0}
+    <div class="empty-universe"><strong>No server galaxy</strong><span>This game predates the 0.5.1 universe generator. Create a new game to test live galaxy gameplay.</span></div>
+  {/if}
+
+  <div class="map-legend"><span class="friendly">{liveMode ? 'Yours' : 'Dominion'}</span><span class="neutral">Unclaimed</span><span class="hostile-dot">{liveMode ? 'Other player' : 'Hostile'}</span></div>
 </div>
 
 <style>
@@ -181,6 +195,7 @@
   .minimap svg { cursor: default; }.minimap .mini { stroke-width: .5; fill-opacity: .12; }.minimap .player { fill: #35c0ff; stroke: #35c0ff; }.minimap .crimson { fill: #ff5f58; stroke: #ff5f58; }.minimap .violet { fill: #c864ef; stroke: #c864ef; }.minimap .amber { fill: #f0ae39; stroke: #f0ae39; }.minimap rect { fill: none; stroke: #fff; stroke-width: 1; opacity: .7; }
   .minimap span { position: absolute; right: 7px; bottom: 4px; color: #7fb5d1; font-size: 9px; }
   .map-legend { position: absolute; top: 12px; left: 14px; display: flex; gap: .8rem; padding: .5rem .7rem; background: rgba(2,10,18,.72); border: 1px solid rgba(65,159,210,.18); color: #7893a5; font-size: .68rem; }
+  .empty-universe { position:absolute; inset:0; display:grid; place-content:center; gap:.5rem; padding:2rem; text-align:center; pointer-events:none; background:radial-gradient(circle at 50% 45%,rgba(21,88,121,.16),transparent 30%); }.empty-universe strong{color:#dff6ff;font-size:1rem;letter-spacing:.08em;text-transform:uppercase}.empty-universe span{max-width:520px;color:#7894a7;font-size:.75rem;line-height:1.55}
   .map-legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: .35rem; }.friendly::before { background:#43c9ff; box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d; box-shadow:0 0 8px #ff645d }
   @keyframes pulse { 0%,100% { r:17; opacity:.8 } 50% { r:24; opacity:.12 } }
   @media (max-width: 760px) { .galaxy-map { min-height: 420px; }.minimap { width: 135px; height: 72px; }.map-controls { bottom: 96px; }.map-legend { display:none; } }

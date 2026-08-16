@@ -19,7 +19,7 @@
 
   <div class="world-art" class:neutral={system.owner === 'neutral'} style={`--world-hue:${system.owner === 'player' ? '198' : system.owner === 'crimson' ? '8' : system.owner === 'violet' ? '280' : '42'}`}>
     <div class="moon"></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
-    <span>{ownerName[system.owner]}</span>
+    <span>{system.ownerLabel ?? ownerName[system.owner]}</span>
   </div>
 
   <div class="summary-grid">

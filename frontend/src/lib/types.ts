@@ -93,6 +93,9 @@ export interface FleetSummary {
   location: string;
   destination?: string;
   eta?: number;
+  ownerPlayerId?: number;
+  systemId?: string;
+  targetSystemId?: string;
 }
 
 export interface StarSystem {
@@ -101,6 +104,8 @@ export interface StarSystem {
   x: number;
   y: number;
   owner: Owner;
+  ownerPlayerId?: number | null;
+  ownerLabel?: string;
   className: string;
   population: number;
   capacity: number;
@@ -145,6 +150,48 @@ export interface PlayerOrders {
   [key: string]: unknown;
 }
 
+export interface ServerFleetState {
+  id: string;
+  ownerPlayerId: number;
+  systemId: string;
+  name: string;
+  ships: number;
+  role: string;
+  destinationSystemId?: string;
+}
+
+export interface ServerSystemState {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  ownerPlayerId: number | null;
+  className: string;
+  population: number;
+  capacity: number;
+  happiness: number;
+  security: number;
+  development: number;
+  defenses: number;
+  resources: ResourceValue[];
+  production: ProductionItem[];
+  description: string;
+  isCapital?: boolean;
+}
+
+export interface ServerUniverseState {
+  systems?: ServerSystemState[];
+  routes?: RouteLink[];
+  fleets?: ServerFleetState[];
+  planets?: unknown[];
+}
+
+export interface ServerGameState {
+  year: number;
+  universe: ServerUniverseState;
+  [key: string]: unknown;
+}
+
 export interface AccountTurnStatusGame {
   id: number;
   name: string;
@@ -154,6 +201,7 @@ export interface AccountTurnStatusGame {
 export interface AccountTurnStatusTurn {
   number: number;
   status: string;
+  rules_version?: string;
   queued_at: string | null;
   published_at: string | null;
 }
@@ -172,6 +220,7 @@ export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
 export interface AccountTurnStatus extends Record<string, unknown> {
   game: AccountTurnStatusGame;
   turn: AccountTurnStatusTurn;
+  state?: ServerGameState;
   players: AccountTurnStatusPlayer[];
   you: AccountTurnStatusYou;
 }

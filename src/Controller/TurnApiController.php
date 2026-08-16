@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Bellcom\StarsTurnBundle\Controller;
 
 use Bellcom\StarsTurnBundle\Application\TurnSubmissionService;
-use Bellcom\StarsTurnBundle\Entity\PlayerTurn;
 use Bellcom\StarsTurnBundle\Repository\PlayerTurnRepository;
 use Bellcom\StarsTurnBundle\Repository\TurnRepository;
 use Bellcom\StarsTurnBundle\Security\PlayerTokenAuthenticator;
@@ -61,9 +60,11 @@ final class TurnApiController extends AbstractController
             'turn' => [
                 'number' => $turn->getNumber(),
                 'status' => $turn->getStatus()->value,
+                'rules_version' => $turn->getRulesVersion(),
                 'queued_at' => $turn->getQueuedAt()?->format(DATE_ATOM),
                 'published_at' => $turn->getPublishedAt()?->format(DATE_ATOM),
             ],
+            'state' => $turn->getInitialState(),
             'players' => $players,
             'you' => [
                 'id' => $player->getId(),
