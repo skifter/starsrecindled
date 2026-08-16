@@ -26,7 +26,7 @@ final readonly class GameInvitationService
         $emailed = 0;
         $failed = 0;
         $emailColumn = $this->playerEmailColumn();
-        $quotedEmail = $this->connection->getDatabasePlatform()->quoteIdentifier($emailColumn);
+        $quotedEmail = $this->connection->getDatabasePlatform()->quoteSingleIdentifier($emailColumn);
 
         $players = $this->connection->fetchAllAssociative(sprintf(
             <<<'SQL'
@@ -316,7 +316,7 @@ TEXT;
 
     private function playerTokenHashValue(string $column, int $playerId, string $token): string
     {
-        $quotedColumn = $this->connection->getDatabasePlatform()->quoteIdentifier($column);
+        $quotedColumn = $this->connection->getDatabasePlatform()->quoteSingleIdentifier($column);
         $current = $this->connection->fetchOne(
             sprintf('SELECT %s FROM stars_player WHERE id = :id', $quotedColumn),
             ['id' => $playerId],

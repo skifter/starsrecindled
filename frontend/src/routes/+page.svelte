@@ -31,6 +31,7 @@
   let screen: AppScreen = 'login';
   let connection: ConnectionSettings = { ...defaultConnection };
   let profile: AccountProfileResult | null = null;
+  let activeGame: AccountGameAccess | null = null;
   let orders: PlayerOrders = { ...defaultOrders };
   let status: Record<string, unknown> | null = null;
   let busy = false;
@@ -309,6 +310,7 @@
 
   async function playGame(game: AccountGameAccess): Promise<void> {
     if (!profile) return;
+    activeGame = game;
     connection = {
       apiBase: profile.authMode === 'direct' ? directApiBase : '',
       gameId: game.gameId,
@@ -327,6 +329,7 @@
   }
 
   function openDemo(): void {
+    activeGame = { gameId: 1, playerId: 1, turnNumber: 1, label: 'Demonstration universe', playerLabel: 'Demonstration player', players: [] };
     demoMode = true;
     connection = { ...defaultConnection, authMode: 'demo' };
     status = null;
@@ -378,6 +381,7 @@
 
   function exitGame(): void {
     apiMessage = '';
+    activeGame = null;
     if (profile) screen = 'lobby';
     else screen = 'login';
   }
@@ -413,6 +417,7 @@
 {:else}
   <GameShell
     {connection}
+    game={activeGame}
     {orders}
     {status}
     {busy}

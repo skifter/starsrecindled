@@ -1,5 +1,5 @@
 export type AppScreen = 'login' | 'lobby' | 'game';
-export type GameSection = 'galaxy' | 'planets' | 'fleets' | 'research' | 'diplomacy' | 'report';
+export type GameSection = 'players' | 'galaxy' | 'planets' | 'fleets' | 'research' | 'diplomacy' | 'report';
 export type Owner = 'player' | 'neutral' | 'crimson' | 'violet' | 'amber';
 export type AccountAuthMode = 'web' | 'direct';
 
@@ -31,12 +31,19 @@ export interface AccountIdentity {
   clientTokenCreatedAt: string | null;
 }
 
+export interface GamePlayerSummary {
+  playerId: number;
+  displayName: string;
+  active: boolean;
+}
+
 export interface AccountGameAccess {
   gameId: number;
   playerId: number;
   turnNumber: number;
   label: string;
   playerLabel: string;
+  players: GamePlayerSummary[];
 }
 
 export interface AccountGameInvitation {

@@ -304,10 +304,33 @@ final class AccountController extends AbstractController
                 'turnNumber' => $this->currentTurnNumber($gameId),
                 'label' => $this->gameLabel($gameId),
                 'playerLabel' => $this->playerLabel($playerId),
+                'players' => $this->gamePlayers($gameId),
             ];
         }
 
         return $games;
+    }
+
+    /** @return list<array{playerId:int, displayName:string, active:bool}> */
+    private function gamePlayers(int $gameId): array
+    {
+        try {
+            $rows = $this->connection->fetchAllAssociative(
+                'SELECT id, display_name, active FROM stars_player WHERE game_id = :gameId ORDER BY id',
+                ['gameId' => $gameId],
+            );
+
+            return array_map(
+                static fn (array $row): array => [
+                    'playerId' => (int) $row['id'],
+                    'displayName' => (string) $row['display_name'],
+                    'active' => (bool) $row['active'],
+                ],
+                $rows,
+            );
+        } catch (Throwable) {
+            return [];
+        }
     }
 
     private function currentTurnNumber(int $gameId): int
