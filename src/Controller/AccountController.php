@@ -6,7 +6,7 @@ namespace Bellcom\StarsTurnBundle\Controller;
 
 use Bellcom\StarsTurnBundle\Service\AccountAccessException;
 use Bellcom\StarsTurnBundle\Service\AccountAccessService;
-use Bellcom\StarsTurnBundle\Service\AccountCredentialVault;
+use Bellcom\StarsTurnBundle\Service\GameInvitationService;
 use Bellcom\StarsTurnBundle\Service\ResolvedAccountAccess;
 use DateTimeImmutable;
 use Doctrine\DBAL\Connection;
@@ -24,7 +24,7 @@ final class AccountController extends AbstractController
     public function __construct(
         private readonly Connection $connection,
         private readonly AccountAccessService $access,
-        private readonly AccountCredentialVault $vault,
+        private readonly GameInvitationService $invitations,
         private readonly MailerInterface $mailer,
     ) {
     }
@@ -169,39 +169,37 @@ final class AccountController extends AbstractController
             $resolved = $this->access->resolve($request);
             $this->access->requireWebWrite($request, $resolved);
             $payload = $this->jsonPayload($request);
-            $gameId = $this->requiredPositiveInt($payload, 'gameId');
-            $invitationCode = $this->requiredString($payload, 'invitationCode', 16, 4096);
+            $invitationId = $this->requiredPositiveInt($payload, 'invitationId');
 
-            $existing = $this->connection->fetchAssociative(
-                'SELECT id, player_id FROM stars_account_game_access WHERE account_id = :accountId AND game_id = :gameId ORDER BY id LIMIT 1',
-                ['accountId' => $resolved->accountId, 'gameId' => $gameId],
+            $this->invitations->acceptById(
+                $resolved->accountId,
+                $resolved->email,
+                $invitationId,
             );
-            if ($existing !== false) {
-                return new JsonResponse($this->profile($resolved, 'This account already participates in the game.'));
-            }
 
-            $player = $this->findPlayerByInvitation($gameId, $invitationCode);
-            $playerId = (int) $player['id'];
-            $ownerId = $this->connection->fetchOne(
-                'SELECT account_id FROM stars_account_game_access WHERE player_id = :playerId',
-                ['playerId' => $playerId],
+            return new JsonResponse($this->profile($resolved, 'The invitation was accepted and the game is now linked to your account.'));
+        } catch (AccountInputException|AccountAccessException $exception) {
+            return $this->error($exception->getMessage(), $exception->statusCode);
+        } catch (Throwable $exception) {
+            return $this->serverError($exception);
+        }
+    }
+
+    public function acceptInvitationLink(Request $request): JsonResponse
+    {
+        try {
+            $resolved = $this->access->resolve($request);
+            $this->access->requireWebWrite($request, $resolved);
+            $payload = $this->jsonPayload($request);
+            $token = $this->requiredString($payload, 'token', 20, 4096);
+
+            $this->invitations->acceptByLink(
+                $resolved->accountId,
+                $resolved->email,
+                $token,
             );
-            if ($ownerId !== false && (int) $ownerId !== $resolved->accountId) {
-                return $this->error('This invitation has already been accepted by another account.', Response::HTTP_CONFLICT);
-            }
 
-            if ($ownerId === false) {
-                $this->connection->insert('stars_account_game_access', [
-                    'account_id' => $resolved->accountId,
-                    'game_id' => $gameId,
-                    'player_id' => $playerId,
-                    'token_ciphertext' => $this->vault->encrypt($invitationCode),
-                    'token_last_four' => substr($invitationCode, -4),
-                    'created_at' => $this->now(),
-                ]);
-            }
-
-            return new JsonResponse($this->profile($resolved));
+            return new JsonResponse($this->profile($resolved, 'Invitation accepted. The game is ready in your account.'));
         } catch (AccountInputException|AccountAccessException $exception) {
             return $this->error($exception->getMessage(), $exception->statusCode);
         } catch (Throwable $exception) {
@@ -281,6 +279,7 @@ final class AccountController extends AbstractController
                     : null,
             ],
             'games' => $this->loadGames($resolved->accountId),
+            'invitations' => $this->invitations->pendingForAccount($resolved->accountId, $resolved->email),
             'csrfToken' => $this->access->csrfToken($resolved),
             'authMode' => $resolved->usesWebSession ? 'web' : 'direct',
             'notice' => $notice,
@@ -309,48 +308,6 @@ final class AccountController extends AbstractController
         }
 
         return $games;
-    }
-
-    /** @return array<string, mixed> */
-    private function findPlayerByInvitation(int $gameId, string $invitationCode): array
-    {
-        $columns = array_change_key_case($this->connection->createSchemaManager()->listTableColumns('stars_player'), CASE_LOWER);
-        $tokenColumn = null;
-        foreach (['access_token_hash', 'token_hash', 'api_token_hash'] as $candidate) {
-            if (isset($columns[$candidate])) {
-                $tokenColumn = $candidate;
-                break;
-            }
-        }
-        if ($tokenColumn === null) {
-            foreach (array_keys($columns) as $candidate) {
-                if (str_contains($candidate, 'token') && str_contains($candidate, 'hash')) {
-                    $tokenColumn = $candidate;
-                    break;
-                }
-            }
-        }
-        if ($tokenColumn === null) {
-            throw new \RuntimeException('No token hash column was found in stars_player.');
-        }
-
-        $players = $this->connection->fetchAllAssociative(
-            'SELECT * FROM stars_player WHERE game_id = :gameId ORDER BY id',
-            ['gameId' => $gameId],
-        );
-        $expectedHex = hash('sha256', $invitationCode);
-        $expectedRaw = hash('sha256', $invitationCode, true);
-
-        foreach ($players as $player) {
-            $stored = (string) ($player[$tokenColumn] ?? '');
-            $matchesHex = strlen($stored) === 64 && ctype_xdigit($stored) && hash_equals(strtolower($stored), $expectedHex);
-            $matchesRaw = strlen($stored) === 32 && hash_equals($stored, $expectedRaw);
-            if ($matchesHex || $matchesRaw) {
-                return $player;
-            }
-        }
-
-        throw new AccountInputException('The game ID or invitation code is invalid.', Response::HTTP_UNAUTHORIZED);
     }
 
     private function currentTurnNumber(int $gameId): int
@@ -423,7 +380,7 @@ The client token belongs to your user account and works across all games you hav
 It does not belong to one specific game.
 
 Discover account and games:
-GET {$baseUrl}/stars/api/account/direct-login
+POST {$baseUrl}/stars/api/account/direct-login
 Authorization: Bearer {$clientToken}
 
 Play a game:

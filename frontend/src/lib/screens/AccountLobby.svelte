@@ -12,13 +12,16 @@
   export let onLogout: () => void;
   export let onDemo: () => void;
 
-  let gameId = 1;
-  let invitationCode = '';
-  let showInvitation = false;
+  let selectedInvitationId = 0;
+
+  $: if (selectedInvitationId > 0 && !profile.invitations.some((invitation) => invitation.id === selectedInvitationId)) {
+    selectedInvitationId = 0;
+  }
 
   function join(event: SubmitEvent): void {
     event.preventDefault();
-    onJoin({ gameId, invitationCode: invitationCode.trim() });
+    if (selectedInvitationId < 1) return;
+    onJoin({ invitationId: selectedInvitationId });
   }
 </script>
 
@@ -65,7 +68,7 @@
           <div class="empty-state">
             <Icon name="galaxy" size={58} />
             <h2>No games linked yet</h2>
-            <p>Use a game ID and the invitation code supplied by the game host. The invitation is used once to link this account to a player seat.</p>
+            <p>Invitations sent to your account email address appear automatically in the Join a game list.</p>
           </div>
         {/if}
 
@@ -77,19 +80,26 @@
           <form onsubmit={join}>
             <p class="eyebrow">Join a game</p>
             <h2>Accept invitation</h2>
-            <p class="helper">The game ID identifies the game. The invitation code assigns an available player seat to your account.</p>
+            <p class="helper">Games you have been invited to are listed below. Select an invitation and press Join game.</p>
 
-            <label class="field">
-              <span>Game ID</span>
-              <div><Icon name="shield" size={18} /><input type="number" min="1" bind:value={gameId} required /></div>
-            </label>
+            {#if profile.invitations.length > 0}
+              <label class="field">
+                <span>Invitation</span>
+                <div>
+                  <Icon name="report" size={18} />
+                  <select bind:value={selectedInvitationId} required>
+                    <option value={0}>Select invited game…</option>
+                    {#each profile.invitations as invitation}
+                      <option value={invitation.id}>{invitation.label} — {invitation.playerLabel}</option>
+                    {/each}
+                  </select>
+                </div>
+              </label>
 
-            <label class="field">
-              <span>Invitation code</span>
-              <div><Icon name="key" size={18} /><input type={showInvitation ? 'text' : 'password'} minlength="16" bind:value={invitationCode} required autocomplete="off" /><button type="button" onclick={() => (showInvitation = !showInvitation)}>{showInvitation ? 'Hide' : 'Show'}</button></div>
-            </label>
-
-            <button class="primary" type="submit" disabled={busy || invitationCode.trim().length < 16}><Icon name="plus" size={18} /> Join game</button>
+              <button class="primary" type="submit" disabled={busy || selectedInvitationId < 1}><Icon name="plus" size={18} /> Join game</button>
+            {:else}
+              <div class="no-invitations"><Icon name="report" size={24} /><span>No pending invitations for {profile.account.email}</span></div>
+            {/if}
           </form>
 
           <div class="token-box">
@@ -156,7 +166,9 @@
   .field { display: grid; gap: .35rem; margin-top: .8rem; }
   .field > span { color: #65cfff; text-transform: uppercase; letter-spacing: .07em; font-size: .67rem; }
   .field > div { min-height: 48px; display: flex; align-items: center; gap: .6rem; padding: 0 .7rem; border: 1px solid rgba(70,158,211,.28); background: rgba(1,8,16,.78); color: #6abfe8; }
-  input { width: 100%; border: 0; outline: 0; color: #e8f5fc; background: transparent; font: inherit; min-width: 0; }
+  input, select { width: 100%; border: 0; outline: 0; color: #e8f5fc; background: transparent; font: inherit; min-width: 0; }
+  select option { background: #061321; color: #e8f5fc; }
+  .no-invitations { display: flex; align-items: center; gap: .6rem; margin-top: .9rem; padding: .8rem; border: 1px solid rgba(70,158,211,.2); color: #7892a5; font-size: .8rem; }
   .field button { border: 0; background: transparent; color: #64cfff; }
   .primary, .secondary { width: 100%; margin-top: .85rem; }
   dl { font-size: .78rem; margin: .8rem 0; }

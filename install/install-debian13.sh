@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 027
 IFS=$'\n\t'
 
-SCRIPT_VERSION="2026-08-01.2"
+SCRIPT_VERSION="2026-08-16.3"
 CURRENT_STEP="initialisering"
 
 APP_NAME="stars"
@@ -22,7 +22,7 @@ SYMFONY_VERSION="${SYMFONY_VERSION:-7.4.*}"
 DOMAIN="${DOMAIN:-}"
 ENABLE_TLS="${ENABLE_TLS:-0}"
 LE_EMAIL="${LE_EMAIL:-}"
-MAILER_DSN="${MAILER_DSN:-null://null}"
+MAILER_DSN="${MAILER_DSN:-smtp://sogo.bellcom.dk:25?require_tls=true}"
 STARS_MAILER_FROM="${STARS_MAILER_FROM:-js@bellcom.dk}"
 
 DB_NAME="${DB_NAME:-stars}"
@@ -832,6 +832,7 @@ WorkingDirectory=${APP_ROOT}
 Environment=APP_ENV=prod
 Environment=APP_DEBUG=0
 ExecStart=${PHP_BIN} bin/console stars:queue:reconcile --no-interaction
+ExecStart=${PHP_BIN} bin/console stars:invitation:reconcile --no-interaction
 PrivateTmp=true
 NoNewPrivileges=true
 EOF_RECONCILE

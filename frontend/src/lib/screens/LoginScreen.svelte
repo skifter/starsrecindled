@@ -5,6 +5,7 @@
 
   export let busy = false;
   export let error = '';
+  export let notice = '';
   export let onAccountLogin: (credentials: AccountLoginInput) => void;
   export let onAccountRegister: (registration: AccountRegistrationInput) => void;
   export let onDirectLogin: (apiBase: string, clientToken: string) => void;
@@ -93,6 +94,8 @@
               <button type="button" class:active={accountMode === 'login'} onclick={() => { accountMode = 'login'; localError = ''; }}>Log in</button>
               <button type="button" class:active={accountMode === 'register'} onclick={() => { accountMode = 'register'; localError = ''; }}>Create account</button>
             </div>
+
+            {#if notice}<p class="invitation-notice"><Icon name="report" size={18} /> {notice}</p>{/if}
 
             <p class="helper">
               {accountMode === 'login'
@@ -204,6 +207,7 @@
   .enter-button:disabled { opacity: .55; cursor: wait; }
   .secondary { color: #74cfff; border: 1px solid rgba(57,188,248,.5); background: rgba(4,19,32,.7); font: inherit; cursor: pointer; }
   .wide-button { width: 100%; min-height: 46px; margin-top: .7rem; }
+  .invitation-notice { display: flex; align-items: center; justify-content: center; gap: .5rem; color: #8fe3ff; border: 1px solid rgba(65,190,255,.34); background: rgba(8,58,84,.28); padding: .7rem; font-size: .8rem; }
   .error-message { color: #ffb4b4; border: 1px solid rgba(255,78,78,.35); background: rgba(96,12,20,.26); padding: .7rem; font-size: .8rem; }
   footer { display: flex; justify-content: center; gap: 2rem; margin-top: 1.2rem; color: #6e879a; font-size: .7rem; }
   footer span::before { content: '◇'; color: #4fc8ff; margin-right: .45rem; }

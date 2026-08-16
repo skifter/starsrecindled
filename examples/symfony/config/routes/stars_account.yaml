@@ -28,6 +28,11 @@ stars_account_join_game:
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::joinGame
   methods: [POST]
 
+stars_account_accept_invitation_link:
+  path: /stars/api/account/invitations/accept-link
+  controller: Bellcom\StarsTurnBundle\Controller\AccountController::acceptInvitationLink
+  methods: [POST]
+
 stars_account_rotate_client_token:
   path: /stars/api/account/token/rotate
   controller: Bellcom\StarsTurnBundle\Controller\AccountController::rotateClientToken

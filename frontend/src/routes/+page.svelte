@@ -26,6 +26,7 @@
   const defaultOrders: PlayerOrders = { fleets: [], production: [] };
   const directTokenKey = 'stars.clientToken';
   const directApiBaseKey = 'stars.clientApiBase';
+  const pendingInvitationKey = 'stars.pendingInvitation';
 
   let screen: AppScreen = 'login';
   let connection: ConnectionSettings = { ...defaultConnection };
@@ -39,6 +40,7 @@
   let demoMode = false;
   let directClientToken = '';
   let directApiBase = '';
+  let invitationNotice = '';
 
   onMount(() => {
     void initialize();
@@ -46,6 +48,11 @@
 
   async function initialize(): Promise<void> {
     const params = new URLSearchParams(window.location.search);
+    const invitationFromLink = params.get('invite')?.trim() ?? '';
+    if (invitationFromLink) {
+      sessionStorage.setItem(pendingInvitationKey, invitationFromLink);
+      invitationNotice = 'Game invitation detected. Log in or create an account with the invited email address.';
+    }
     const savedOrders = localStorage.getItem('stars.orders');
     if (savedOrders) {
       try {
@@ -66,9 +73,15 @@
       profile = restored;
       accountMessage = restored.notice ?? '';
       screen = 'lobby';
+      await acceptPendingInvitationLink();
       return;
     } catch {
-      // No web session. A direct token is kept only for this browser tab/session.
+      // No web session. Invitation links require email/password login.
+    }
+
+    if (sessionStorage.getItem(pendingInvitationKey)) {
+      screen = 'login';
+      return;
     }
 
     const savedDirectToken = sessionStorage.getItem(directTokenKey) ?? '';
@@ -134,6 +147,7 @@
       directApiBase = '';
       accountMessage = profile.notice ?? '';
       screen = 'lobby';
+      await acceptPendingInvitationLink();
     } catch (caught) {
       loginError = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -150,6 +164,7 @@
       directApiBase = '';
       accountMessage = profile.notice ?? 'Account created. Your personal client token was sent by email.';
       screen = 'lobby';
+      await acceptPendingInvitationLink();
     } catch (caught) {
       loginError = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -181,11 +196,29 @@
     accountMessage = '';
     try {
       profile = await webAccountRequest<AccountProfileResult>('/games/join', 'POST', input);
-      accountMessage = profile.notice ?? `Game ${input.gameId} was linked to your account.`;
+      accountMessage = profile.notice ?? 'The selected game was linked to your account.';
     } catch (caught) {
       accountMessage = caught instanceof Error ? caught.message : String(caught);
     } finally {
       busy = false;
+    }
+  }
+
+  async function acceptPendingInvitationLink(): Promise<void> {
+    if (!profile || profile.authMode !== 'web') return;
+    const token = sessionStorage.getItem(pendingInvitationKey) ?? '';
+    if (!token) return;
+
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/invitations/accept-link', 'POST', { token });
+      accountMessage = profile.notice ?? 'Invitation accepted. The game is now linked to your account.';
+      sessionStorage.removeItem(pendingInvitationKey);
+      invitationNotice = '';
+      const url = new URL(window.location.href);
+      url.searchParams.delete('invite');
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch (caught) {
+      accountMessage = caught instanceof Error ? caught.message : String(caught);
     }
   }
 
@@ -360,6 +393,7 @@
   <LoginScreen
     {busy}
     error={loginError}
+    notice={invitationNotice}
     onAccountLogin={accountLogin}
     onAccountRegister={accountRegister}
     onDirectLogin={directLogin}

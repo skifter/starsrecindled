@@ -1,7 +1,7 @@
 doctrine:
   dbal:
-    # Account tables are managed by explicit DBAL migrations and must not be removed by ORM schema validation.
-    schema_filter: '~^(?!stars_account(?:$|_)).*$~'
+    # These tables are managed by explicit DBAL migrations and must not be removed by ORM schema validation.
+    schema_filter: '~^(?!(?:stars_account(?:$|_)|stars_game_invitation$)).*$~'
 
 services:
   _defaults:
@@ -10,6 +10,10 @@ services:
 
   Bellcom\StarsTurnBundle\Service\AccountAccessService: ~
   Bellcom\StarsTurnBundle\Service\AccountCredentialVault: ~
+  Bellcom\StarsTurnBundle\Service\GameInvitationService: ~
+
+  Bellcom\StarsTurnBundle\Command\ReconcileGameInvitationsCommand: ~
+  Bellcom\StarsTurnBundle\EventSubscriber\GameInvitationConsoleSubscriber: ~
 
   Bellcom\StarsTurnBundle\Controller\AccountController:
     public: true

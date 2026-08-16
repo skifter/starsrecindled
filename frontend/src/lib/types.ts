@@ -39,17 +39,27 @@ export interface AccountGameAccess {
   playerLabel: string;
 }
 
+export interface AccountGameInvitation {
+  id: number;
+  gameId: number;
+  playerId: number;
+  label: string;
+  playerLabel: string;
+  createdAt: string;
+  emailedAt: string | null;
+}
+
 export interface AccountProfileResult {
   account: AccountIdentity;
   games: AccountGameAccess[];
+  invitations: AccountGameInvitation[];
   csrfToken: string;
   authMode: AccountAuthMode;
   notice?: string | null;
 }
 
 export interface JoinGameInput {
-  gameId: number;
-  invitationCode: string;
+  invitationId: number;
 }
 
 export interface ResourceValue {
