@@ -69,7 +69,16 @@
     return source ? [{ from: source.id, to: order.targetSystemId, kind: 'planned' }] : [];
   });
   $: {
-    const replacement = gameSystems.find((system) => system.id === selectedSystem?.id) ?? gameSystems[0] ?? null;
+    const ownHomeSystem = gameSystems.find(
+      (system) => system.ownerPlayerId === connection.playerId && system.isCapital
+    ) ?? gameSystems.find(
+      (system) => system.ownerPlayerId === connection.playerId
+    ) ?? gameSystems[0] ?? null;
+
+    const replacement = gameSystems.find(
+      (system) => system.id === selectedSystem?.id
+    ) ?? (demoMode ? (gameSystems[0] ?? null) : ownHomeSystem);
+
     if (replacement !== selectedSystem) selectedSystem = replacement;
   }
   $: turnStateLabel = busy
