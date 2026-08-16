@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Repository;
 
+use Bellcom\StarsTurnBundle\Entity\Turn;
+
 use Bellcom\StarsTurnBundle\Entity\PlayerTurn;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
