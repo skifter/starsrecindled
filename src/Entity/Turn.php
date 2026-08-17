@@ -123,6 +123,12 @@ class Turn
         return $this->resultState;
     }
 
+    /** @return array<string, mixed> */
+    public function getPlayerReports(): array
+    {
+        return $this->playerReports;
+    }
+
     public function getQueuedAt(): ?\DateTimeImmutable
     {
         return $this->queuedAt;

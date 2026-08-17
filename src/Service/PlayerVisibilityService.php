@@ -8,7 +8,12 @@ final readonly class PlayerVisibilityService
 {
     /**
      * @param array<string, mixed> $state
-     * @return array{state: array<string, mixed>, sensorSystemIds: list<string>, visibleEnemyFleetCount: int}
+     * @return array{
+     *   state: array<string, mixed>,
+     *   sensorSystemIds: list<string>,
+     *   visibleEnemyFleetCount: int,
+     *   colonySensorRanges: array<string, int>
+     * }
      */
     public function project(array $state, int $playerId): array
     {
@@ -36,29 +41,55 @@ final readonly class PlayerVisibilityService
 
         /** @var array<string, true> $sensorSystemIds */
         $sensorSystemIds = [];
-        $markSystem = static function (string $systemId, bool $includeNeighbours = false) use (&$sensorSystemIds, $adjacency): void {
-            if ($systemId === '') {
+        /** @var array<string, int> $colonySensorRanges */
+        $colonySensorRanges = [];
+
+        $markWithinRange = static function (string $origin, int $range) use (&$sensorSystemIds, $adjacency): void {
+            if ($origin === '') {
                 return;
             }
-            $sensorSystemIds[$systemId] = true;
-            if (!$includeNeighbours) {
-                return;
-            }
-            foreach ($adjacency[$systemId] ?? [] as $neighbourId) {
-                $sensorSystemIds[$neighbourId] = true;
+
+            $range = max(0, $range);
+            $visited = [$origin => true];
+            $frontier = [$origin];
+            $sensorSystemIds[$origin] = true;
+
+            for ($depth = 0; $depth < $range; ++$depth) {
+                $next = [];
+                foreach ($frontier as $systemId) {
+                    foreach ($adjacency[$systemId] ?? [] as $neighbourId) {
+                        if (isset($visited[$neighbourId])) {
+                            continue;
+                        }
+                        $visited[$neighbourId] = true;
+                        $sensorSystemIds[$neighbourId] = true;
+                        $next[] = $neighbourId;
+                    }
+                }
+                if ($next === []) {
+                    break;
+                }
+                $frontier = $next;
             }
         };
 
-        // Colonies provide one-hop sensor coverage.
+        // Every owned colony has a one-hop sensor by default. A Deep Space Array
+        // increases that colony's graph distance one step at a time, up to 3 hops.
         foreach ($systems as $system) {
             if (!is_array($system) || (int) ($system['ownerPlayerId'] ?? 0) !== $playerId) {
                 continue;
             }
-            $markSystem(is_string($system['id'] ?? null) ? $system['id'] : '', true);
+            $systemId = is_string($system['id'] ?? null) ? $system['id'] : '';
+            if ($systemId === '') {
+                continue;
+            }
+            $range = max(1, min(3, (int) ($system['sensorRange'] ?? 1)));
+            $colonySensorRanges[$systemId] = $range;
+            $markWithinRange($systemId, $range);
         }
 
-        // All own fleets reveal their current system. Scouts and exploration fleets
-        // additionally reveal directly connected systems.
+        // All own fleets reveal their current system. Scout and exploration fleets
+        // also reveal all directly connected systems (one hop).
         foreach ($fleets as $fleet) {
             if (!is_array($fleet) || (int) ($fleet['ownerPlayerId'] ?? 0) !== $playerId) {
                 continue;
@@ -66,7 +97,7 @@ final readonly class PlayerVisibilityService
             $systemId = is_string($fleet['systemId'] ?? null) ? $fleet['systemId'] : '';
             $role = is_string($fleet['role'] ?? null) ? $fleet['role'] : '';
             $isScout = in_array($role, ['Scout fleet', 'Exploration fleet'], true);
-            $markSystem($systemId, $isScout);
+            $markWithinRange($systemId, $isScout ? 1 : 0);
         }
 
         $visibleFleets = [];
@@ -94,11 +125,13 @@ final readonly class PlayerVisibilityService
 
         $sensorIds = array_keys($sensorSystemIds);
         sort($sensorIds, SORT_STRING);
+        ksort($colonySensorRanges, SORT_STRING);
 
         return [
             'state' => $state,
             'sensorSystemIds' => array_values($sensorIds),
             'visibleEnemyFleetCount' => $visibleEnemyFleetCount,
+            'colonySensorRanges' => $colonySensorRanges,
         ];
     }
 }

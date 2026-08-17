@@ -59,6 +59,22 @@ final class TurnApiController extends AbstractController
         }
         $projection = $this->visibility->project($turn->getInitialState(), $playerId);
 
+        $previousReport = null;
+        if ($turnNumber > 1) {
+            $previousTurn = $this->turnRepository->findForGameAndNumber($gameId, $turnNumber - 1);
+            if ($previousTurn !== null) {
+                $reports = $previousTurn->getPlayerReports();
+                $playerReport = $reports[(string) $playerId] ?? null;
+                $resultState = $previousTurn->getResultState();
+                $previousReport = [
+                    'turn_number' => $previousTurn->getNumber(),
+                    'year' => is_array($resultState) && is_numeric($resultState['year'] ?? null) ? (int) $resultState['year'] : null,
+                    'published_at' => $previousTurn->getPublishedAt()?->format(DATE_ATOM),
+                    'data' => is_array($playerReport) ? $playerReport : null,
+                ];
+            }
+        }
+
         return $this->json([
             'game' => [
                 'id' => $turn->getGame()->getId(),
@@ -76,7 +92,9 @@ final class TurnApiController extends AbstractController
             'visibility' => [
                 'sensor_system_ids' => $projection['sensorSystemIds'],
                 'visible_enemy_fleets' => $projection['visibleEnemyFleetCount'],
+                'colony_sensor_ranges' => $projection['colonySensorRanges'],
             ],
+            'previous_report' => $previousReport,
             'players' => $players,
             'you' => [
                 'id' => $playerId,

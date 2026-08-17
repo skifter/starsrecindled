@@ -180,6 +180,7 @@ final class DemoTurnEngine implements TurnEngineInterface
                     $playerId,
                 );
                 $systems[$systemIndex]['isCapital'] = false;
+                $systems[$systemIndex]['sensorRange'] = 1;
 
                 $fleets[$fleetIndex]['colonizationCapacity'] = $capacity - 1;
                 $colonizations[] = [
@@ -258,6 +259,15 @@ final class DemoTurnEngine implements TurnEngineInterface
                             0,
                             (int) ($systems[$systemIndex]['resources'][$industryIndex]['income'] ?? 0),
                         ) + 8;
+                    } elseif ($item === 'Deep Space Array') {
+                        $currentRange = max(1, (int) ($systems[$systemIndex]['sensorRange'] ?? 1));
+                        if ($currentRange >= 3) {
+                            // Refund if a duplicate/technical order attempts to exceed the cap.
+                            $systems[$systemIndex]['resources'][$industryIndex]['value'] += $definition['cost'];
+                            $warnings[] = sprintf('%s har allerede maksimal sensor-rækkevidde.', (string) ($systems[$systemIndex]['name'] ?? $systemId));
+                            break;
+                        }
+                        $systems[$systemIndex]['sensorRange'] = min(3, $currentRange + 1);
                     }
 
                     $productions[] = [
@@ -341,6 +351,7 @@ final class DemoTurnEngine implements TurnEngineInterface
             'Scout Wing' => ['cost' => 300],
             'Defense Grid' => ['cost' => 250],
             'Orbital Factory' => ['cost' => 400],
+            'Deep Space Array' => ['cost' => 350],
             default => null,
         };
     }

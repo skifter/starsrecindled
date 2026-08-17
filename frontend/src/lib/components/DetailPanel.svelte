@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import PlanetSensorVisual from './PlanetSensorVisual.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
   import type { AccountTurnStatusPlayer, FleetSummary, ProductionOrder, StarSystem } from '../types';
 
@@ -21,6 +22,9 @@
   $: isYours = system.ownerPlayerId === currentPlayerId;
   $: playerIds = players.map((player) => player.id);
   $: systemColor = OWNER_COLORS[system.owner];
+  $: sensorRange = system.ownerPlayerId === null ? 0 : Math.max(1, Math.min(3, Math.round(system.sensorRange ?? 1)));
+  $: queuedSensorUpgrades = productionOrders.filter((order) => order.item === 'Deep Space Array').reduce((sum, order) => sum + Math.max(1, order.quantity), 0);
+  $: projectedSensorRange = Math.min(3, sensorRange + queuedSensorUpgrades);
 
   function fleetColor(fleet: FleetSummary): string {
     return fleet.ownerPlayerId ? OWNER_COLORS[ownerForPlayerId(fleet.ownerPlayerId, playerIds)] : OWNER_COLORS.neutral;
@@ -41,13 +45,14 @@
   </header>
 
   <div class="world-art" class:neutral={system.ownerPlayerId === null} style={`--world-hue:${system.owner === 'player' ? '198' : system.owner === 'crimson' ? '8' : system.owner === 'violet' ? '280' : '42'}`}>
-    <div class="moon"></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sensor-world"><PlanetSensorVisual color={systemColor} {sensorRange} size={116} neutral={system.ownerPlayerId === null} label={system.name}/></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
     <span>{system.ownerLabel ?? ownerName[system.owner]}</span>
   </div>
 
   <div class="summary-grid">
     <div><Icon name="user" size={19}/><span><small>Population</small><strong>{system.population.toFixed(1)} / {system.capacity.toFixed(1)}B</strong></span></div>
     <div><span class="happy">☺</span><span><small>Happiness</small><strong>{system.happiness}%</strong></span></div>
+    <div><Icon name="target" size={19}/><span><small>Sensor range</small><strong>{sensorRange} hop{sensorRange === 1 ? '' : 's'}{projectedSensorRange > sensorRange ? ` → ${projectedSensorRange}` : ''}</strong></span></div>
   </div>
 
   <section class="panel-section">
@@ -68,7 +73,7 @@
       <div class="queue">
         {#each productionOrders as item}
           <div class="queue-item draft">
-            <Icon name={item.item === 'Scout Wing' ? 'fleet' : item.item === 'Defense Grid' ? 'shield' : 'industry'} size={17}/>
+            <Icon name={item.item === 'Scout Wing' ? 'fleet' : item.item === 'Defense Grid' ? 'shield' : item.item === 'Deep Space Array' ? 'target' : 'industry'} size={17}/>
             <span><strong>{item.item}</strong><small>Completes when the turn is processed</small></span><em>×{item.quantity}</em>
             <button disabled={!canBuild} title={`Remove one ${item.item}`} onclick={() => onRemoveBuild(item.item)}>−1</button>
           </div>
@@ -81,6 +86,7 @@
       <button disabled={!canBuild} onclick={() => onBuild('Scout Wing')}><Icon name="fleet" size={15}/><span><strong>Scout Wing</strong><small>300 industry · 40 ships</small></span></button>
       <button disabled={!canBuild} onclick={() => onBuild('Defense Grid')}><Icon name="shield" size={15}/><span><strong>Defense Grid</strong><small>250 industry · +250 defenses</small></span></button>
       <button disabled={!canBuild} onclick={() => onBuild('Orbital Factory')}><Icon name="industry" size={15}/><span><strong>Orbital Factory</strong><small>400 industry · +8 industry/turn</small></span></button>
+      <button disabled={!canBuild || projectedSensorRange >= 3} onclick={() => onBuild('Deep Space Array')}><Icon name="target" size={15}/><span><strong>Deep Space Array</strong><small>{projectedSensorRange >= 3 ? 'Maximum sensor range reached/queued' : '350 industry · +1 sensor hop'}</small></span></button>
     </div>
     {#if !canBuild}<p class="build-hint">{isYours ? 'Reopen the turn to add production.' : 'Production is only available in your colonies.'}</p>{/if}
   </section>
@@ -124,8 +130,8 @@
   header{min-height:64px;display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:0 1rem;border-bottom:1px solid rgba(64,169,224,.22)}
   .system-title{display:flex;align-items:center;gap:.65rem;min-width:0}.system-title>div{min-width:0}.system-title h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f0f9ff;font-size:1.2rem;letter-spacing:.08em;text-transform:uppercase}.system-title p{margin:.15rem 0 0;color:#8199aa;font-size:.73rem}.system-star{color:var(--system-owner-color);font-size:1.6rem;text-shadow:0 0 12px var(--system-owner-color)}
   .owner-state{flex:none;padding:.28rem .45rem;border:1px solid var(--system-owner-color);color:var(--system-owner-color);background:rgba(92,20,18,.18);font-size:.54rem;font-weight:700;letter-spacing:.06em;white-space:nowrap}.owner-state.yours{background:rgba(13,73,101,.3)}.owner-state.unclaimed{border-style:dashed;color:#b7cbd8;background:rgba(60,74,84,.18)}
-  .world-art{height:146px;position:relative;overflow:hidden;background:radial-gradient(circle at 72% 28%,hsla(var(--world-hue),75%,72%,.6) 0 4%,transparent 18%),linear-gradient(180deg,hsl(var(--world-hue),55%,31%),hsl(var(--world-hue),55%,10%) 70%);border-bottom:1px solid rgba(62,164,218,.22)}.world-art::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 28% 20%,rgba(255,255,255,.7) 0 .6px,transparent .9px),radial-gradient(circle at 58% 33%,rgba(255,255,255,.6) 0 .5px,transparent .8px);background-size:39px 31px,53px 47px;opacity:.6}.world-art.neutral{filter:saturate(.35)}.moon{position:absolute;width:72px;height:72px;border-radius:50%;right:35px;top:14px;background:radial-gradient(circle at 35% 30%,#dbe5ea,#708493 50%,#21303b 75%);box-shadow:0 0 18px hsla(var(--world-hue),80%,70%,.35)}.horizon{position:absolute;left:-10%;right:-10%;height:72px;bottom:-38px;border-radius:50% 50% 0 0;background:linear-gradient(180deg,hsl(var(--world-hue),42%,32%),#071019);box-shadow:0 -4px 20px hsla(var(--world-hue),70%,60%,.35)}.city{position:absolute;bottom:26px;left:28px;right:100px;display:flex;gap:9px;align-items:end}.city i{width:14px;height:38px;background:linear-gradient(90deg,#102b3c,#32637a,#0b1f2e);clip-path:polygon(35% 0,65% 0,75% 25%,100% 30%,100% 100%,0 100%,0 30%,25% 25%);box-shadow:0 0 8px hsla(var(--world-hue),90%,65%,.4)}.city i:nth-child(2){height:72px}.city i:nth-child(3){height:52px}.city i:nth-child(4){height:82px}.city i:nth-child(5){height:45px}.world-art>span{position:absolute;left:10px;bottom:8px;font-size:.65rem;color:#d5efff;text-transform:uppercase;letter-spacing:.12em}
-  .summary-grid{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid rgba(62,164,218,.2)}.summary-grid>div{min-height:54px;display:flex;align-items:center;gap:.6rem;padding:0 .8rem;border-right:1px solid rgba(62,164,218,.16);color:#75cfff}.summary-grid small,.summary-grid strong{display:block}.summary-grid small{color:#7991a2;font-size:.65rem}.summary-grid strong{color:#dcebf4;font-size:.8rem;margin-top:.1rem}.happy{color:#8cdd60;font-size:1.45rem}
+  .world-art{height:146px;position:relative;overflow:hidden;background:radial-gradient(circle at 72% 28%,hsla(var(--world-hue),75%,72%,.6) 0 4%,transparent 18%),linear-gradient(180deg,hsl(var(--world-hue),55%,31%),hsl(var(--world-hue),55%,10%) 70%);border-bottom:1px solid rgba(62,164,218,.22)}.world-art::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 28% 20%,rgba(255,255,255,.7) 0 .6px,transparent .9px),radial-gradient(circle at 58% 33%,rgba(255,255,255,.6) 0 .5px,transparent .8px);background-size:39px 31px,53px 47px;opacity:.6}.world-art.neutral{filter:saturate(.35)}.sensor-world{position:absolute;right:12px;top:4px;width:122px;height:122px;display:grid;place-items:center;z-index:2}.horizon{position:absolute;left:-10%;right:-10%;height:72px;bottom:-38px;border-radius:50% 50% 0 0;background:linear-gradient(180deg,hsl(var(--world-hue),42%,32%),#071019);box-shadow:0 -4px 20px hsla(var(--world-hue),70%,60%,.35)}.city{position:absolute;bottom:26px;left:28px;right:100px;display:flex;gap:9px;align-items:end}.city i{width:14px;height:38px;background:linear-gradient(90deg,#102b3c,#32637a,#0b1f2e);clip-path:polygon(35% 0,65% 0,75% 25%,100% 30%,100% 100%,0 100%,0 30%,25% 25%);box-shadow:0 0 8px hsla(var(--world-hue),90%,65%,.4)}.city i:nth-child(2){height:72px}.city i:nth-child(3){height:52px}.city i:nth-child(4){height:82px}.city i:nth-child(5){height:45px}.world-art>span{position:absolute;left:10px;bottom:8px;font-size:.65rem;color:#d5efff;text-transform:uppercase;letter-spacing:.12em}
+  .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid rgba(62,164,218,.2)}.summary-grid>div{min-height:54px;display:flex;align-items:center;gap:.6rem;padding:0 .8rem;border-right:1px solid rgba(62,164,218,.16);color:#75cfff}.summary-grid small,.summary-grid strong{display:block}.summary-grid small{color:#7991a2;font-size:.65rem}.summary-grid strong{color:#dcebf4;font-size:.8rem;margin-top:.1rem}.happy{color:#8cdd60;font-size:1.45rem}
   .panel-section{padding:.8rem 1rem;border-bottom:1px solid rgba(62,164,218,.18)}.panel-section h3{margin:0 0 .65rem;color:#49c5ff;text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}.resources{display:flex;justify-content:space-between;gap:.4rem}.resources div{display:flex;align-items:center;gap:.35rem;color:#74d0fb}.resources div span{display:block}.resources strong,.resources small{display:block}.resources strong{color:#dae9f2;font-size:.72rem}.resources small{margin-top:.05rem;color:#6da6c2;font-size:.56rem}
   .production-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.production-heading h3{margin-bottom:.65rem}.production-heading span{margin-bottom:.65rem;color:#6d899b;font-size:.55rem;text-transform:uppercase;letter-spacing:.06em}.queue{display:grid;gap:.45rem}.queue-item{display:grid;grid-template-columns:20px minmax(0,1fr) 28px 30px;gap:.45rem;align-items:center;color:#5fcaff}.queue-item span strong,.queue-item span small{display:block}.queue-item span strong{color:#bcd0dc;font-size:.68rem;font-weight:500}.queue-item span small{margin-top:.12rem;color:#657f90;font-size:.53rem}.queue-item em{color:#e3c466;font-style:normal;font-size:.68rem;text-align:right}.queue-item button{height:27px;border:1px solid rgba(196,104,78,.3);background:rgba(67,24,18,.45);color:#e2a18d;font:inherit;font-size:.58rem;cursor:pointer}.queue-item button:disabled{opacity:.35;cursor:not-allowed}.idle-production{color:#b59b61}
   .build-options{display:grid;gap:.38rem;margin-top:.65rem}.build-options button{min-height:42px;display:grid;grid-template-columns:20px 1fr;gap:.45rem;align-items:center;padding:.4rem .55rem;border:1px solid rgba(61,160,209,.25);background:rgba(5,27,42,.72);color:#58caff;text-align:left;cursor:pointer}.build-options button:hover:not(:disabled){border-color:#48caff;background:rgba(10,49,72,.86)}.build-options button:disabled{opacity:.35;cursor:not-allowed}.build-options span,.build-options strong,.build-options small{display:block}.build-options strong{color:#c7dbe6;font-size:.67rem;font-weight:500}.build-options small{margin-top:.12rem;color:#69899d;font-size:.56rem}.build-hint{margin:.5rem 0 0;color:#71899b;font-size:.62rem;line-height:1.4}

@@ -6,6 +6,7 @@
   import PlayersView from './PlayersView.svelte';
   import FleetsView from './FleetsView.svelte';
   import PlanetsView from './PlanetsView.svelte';
+  import TurnReportView from './TurnReportView.svelte';
   import SectionViews from '../components/SectionViews.svelte';
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
@@ -46,7 +47,8 @@
   const PRODUCTION_COSTS: Record<string, number> = {
     'Scout Wing': 300,
     'Defense Grid': 250,
-    'Orbital Factory': 400
+    'Orbital Factory': 400,
+    'Deep Space Array': 350
   };
 
   let activeSection: GameSection = 'galaxy';
@@ -145,12 +147,17 @@
     selectedSystem = system;
     activeSection = 'galaxy';
     rightPanelOpen = true;
+    showNotice(`${system.name} selected.`);
+  }
+
+  function showNotice(notice: string): void {
+    localNotice = notice;
+    window.setTimeout(() => { if (localNotice === notice) localNotice = ''; }, 3200);
   }
 
   function updateOrders(next: PlayerOrders, notice: string): void {
     onOrdersChange(next);
-    localNotice = notice;
-    window.setTimeout(() => { if (localNotice === notice) localNotice = ''; }, 3200);
+    showNotice(notice);
   }
 
   function routeExists(from: string, to: string): boolean {
@@ -194,6 +201,14 @@
       }
       if (system.ownerPlayerId !== connection.playerId) {
         localNotice = 'Production can only be ordered in one of your colonies.';
+        return;
+      }
+
+      const queuedSensorUpgrades = (orders.production ?? [])
+        .filter((order) => order.systemId === system.id && order.item === 'Deep Space Array')
+        .reduce((sum, order) => sum + Math.max(1, order.quantity), 0);
+      if (item === 'Deep Space Array' && Math.max(1, Math.round(system.sensorRange ?? 1)) + queuedSensorUpgrades >= 3) {
+        showNotice(`${system.name} already has maximum sensor range reached or queued.`);
         return;
       }
 
@@ -259,7 +274,7 @@
     activeSection = 'galaxy';
     rightPanelOpen = true;
     sidebarOpen = false;
-    localNotice = `${system.name} selected.`;
+    showNotice(`${system.name} selected.`);
   }
 
   function selectFleet(fleet: FleetSummary, system: StarSystem, openGalaxy = false): void {
@@ -400,7 +415,7 @@
     <button class="top-icon" aria-label="Exit to menu" onclick={onExit}><Icon name="power" /></button>
   </header>
 
-  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets'}>
+  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets' || activeSection === 'report'}>
     <nav class="sidebar" class:open={sidebarOpen}>
       {#each navigation as item}
         <button class:active={activeSection === item.id} onclick={() => { activeSection = item.id; sidebarOpen = false; }}><Icon name={item.icon} size={25}/><span>{item.label}</span></button>
@@ -434,6 +449,7 @@
           currentPlayerId={connection.playerId}
           {orders}
           {editableTurn}
+          ownerColor={currentPlayerColor}
           onLocate={openPlanet}
           onQueueBuild={addProductionForSystem}
           onRemoveBuild={removeProduction}
@@ -450,6 +466,8 @@
           onLocate={(fleet, system) => selectFleet(fleet, system, true)}
           onPlanRoute={beginWaypointForFleet}
         />
+      {:else if activeSection === 'report' && !demoMode}
+        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet}/>
       {:else if !demoMode}
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>
@@ -461,7 +479,7 @@
       {/if}
     </main>
 
-    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && selectedSystem}
+    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && activeSection !== 'report' && selectedSystem}
       <div class="right-wrap" class:open={rightPanelOpen}>
         <button class="panel-toggle" aria-label="Toggle detail panel" onclick={() => (rightPanelOpen = !rightPanelOpen)}><Icon name={rightPanelOpen ? 'chevron-right' : 'chevron-left'} size={17}/></button>
         <DetailPanel

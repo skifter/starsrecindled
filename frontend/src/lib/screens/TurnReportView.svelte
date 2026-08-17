@@ -1,0 +1,117 @@
+<script lang="ts">
+  import Icon from '../components/Icon.svelte';
+  import type { PreviousTurnReport, StarSystem } from '../types';
+
+  export let report: PreviousTurnReport | null = null;
+  export let systems: StarSystem[] = [];
+  export let onOpenSystem: (system: StarSystem) => void = () => {};
+
+  $: data = report?.data ?? null;
+  $: movements = data?.movements ?? [];
+  $: colonizations = data?.colonizations ?? [];
+  $: productions = data?.productions ?? [];
+  $: warnings = data?.warnings ?? [];
+  $: eventCount = movements.length + colonizations.length + productions.length;
+
+  function system(id: string): StarSystem | null {
+    return systems.find((entry) => entry.id === id) ?? null;
+  }
+
+  function systemName(id: string): string {
+    return system(id)?.name ?? id;
+  }
+
+  function fleetName(id: string): string {
+    return systems.flatMap((entry) => entry.fleets).find((fleet) => fleet.id === id)?.name ?? id;
+  }
+
+  function open(id: string): void {
+    const entry = system(id);
+    if (entry) onOpenSystem(entry);
+  }
+</script>
+
+<section class="report-view">
+  <header class="view-header">
+    <div>
+      <p class="eyebrow">After-action intelligence</p>
+      <h1>Turn report</h1>
+      <p class="intro">What happened when the previous turn was processed. This report is player-specific: it contains your resolved orders, warnings and information your empire is allowed to know.</p>
+    </div>
+    {#if report}
+      <div class="summary">
+        <span><strong>Turn {report.turn_number}</strong><small>resolved</small></span>
+        <span class:warning={warnings.length > 0}><strong>{warnings.length}</strong><small>warnings</small></span>
+        <span><strong>{eventCount}</strong><small>events</small></span>
+      </div>
+    {/if}
+  </header>
+
+  {#if !report || !data}
+    <div class="empty panel-cut"><Icon name="report" size={42}/><h2>No previous turn report</h2><p>The first report appears after a turn has been processed.</p></div>
+  {:else}
+    {#if warnings.length > 0}
+      <section class="attention panel-cut">
+        <header><Icon name="report" size={21}/><span><strong>Requires attention</strong><small>Orders that could not be completed or need review.</small></span></header>
+        <div class="events">
+          {#each warnings as warning}<article class="event warning-event"><Icon name="report" size={17}/><p>{warning}</p></article>{/each}
+        </div>
+      </section>
+    {/if}
+
+    <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="fleet" size={18}/><strong>Fleet movement</strong></span><em>{movements.length}</em></div>
+      {#if movements.length}
+        <div class="events">
+          {#each movements as movement}
+            <article class="event">
+              <Icon name="fleet" size={18}/>
+              <div><strong>{fleetName(movement.fleetId)}</strong><p>{systemName(movement.fromSystemId)} → {systemName(movement.toSystemId)}</p></div>
+              <button onclick={() => open(movement.toSystemId)}>Open system</button>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No fleets moved.</p>{/if}
+    </section>
+
+    <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="planet" size={18}/><strong>Colonization</strong></span><em>{colonizations.length}</em></div>
+      {#if colonizations.length}
+        <div class="events">
+          {#each colonizations as colony}
+            <article class="event success-event">
+              <Icon name="planet" size={18}/>
+              <div><strong>{systemName(colony.systemId)} colonized</strong><p>{colony.population ? `${colony.population.toFixed(2)}B initial population` : 'New colony established'} · {fleetName(colony.fleetId)}</p></div>
+              <button onclick={() => open(colony.systemId)}>Open colony</button>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No colonies were established.</p>{/if}
+    </section>
+
+    <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="build" size={18}/><strong>Production completed</strong></span><em>{productions.length}</em></div>
+      {#if productions.length}
+        <div class="events">
+          {#each productions as production}
+            <article class="event success-event">
+              <Icon name={production.item === 'Scout Wing' ? 'fleet' : production.item === 'Defense Grid' ? 'shield' : production.item === 'Deep Space Array' ? 'target' : 'industry'} size={18}/>
+              <div><strong>{production.item}</strong><p>{systemName(production.systemId)} · {production.industryCost.toLocaleString('en-US')} industry</p></div>
+              <button onclick={() => open(production.systemId)}>Open system</button>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No production completed.</p>{/if}
+    </section>
+
+    <section class="intel-note panel-cut">
+      <Icon name="target" size={19}/><p><strong>Fog of war applies to reports.</strong> Future combat, diplomacy and enemy-contact events will only appear when your sensors, fleets or colonies could observe them.</p>
+    </section>
+  {/if}
+</section>
+
+<style>
+  .report-view{height:100%;overflow:auto;box-sizing:border-box;padding:1.35rem;background:radial-gradient(circle at 45% 12%,rgba(18,93,129,.13),transparent 44%),#030912;color:#8ea5b5}.view-header{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1rem}.eyebrow{margin:0 0 .3rem;color:#43c5ff;text-transform:uppercase;letter-spacing:.14em;font-size:.65rem}h1{margin:0;color:#edf9ff;font-size:1.65rem;font-weight:500;letter-spacing:.08em}.intro{max-width:760px;margin:.5rem 0 0;color:#7f98aa;font-size:.76rem;line-height:1.5}.summary{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:flex-end}.summary span{text-align:right}.summary strong,.summary small{display:block}.summary strong{color:#e4f4fb;font-size:.95rem}.summary small{margin-top:.12rem;color:#648296;text-transform:uppercase;font-size:.54rem;letter-spacing:.08em}.summary .warning strong{color:#efb55a}
+  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event p{margin:0;color:#d1a06c}.success-event{color:#71cf96}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
+  @media(max-width:800px){.view-header{display:grid}.summary{justify-content:flex-start}.summary span{text-align:left}.event{grid-template-columns:26px minmax(0,1fr)}.event button{grid-column:2;justify-self:start}.report-view{padding:.8rem}}
+</style>

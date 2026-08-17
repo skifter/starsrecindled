@@ -121,6 +121,7 @@ export interface StarSystem {
   fleets: FleetSummary[];
   description: string;
   isCapital?: boolean;
+  sensorRange?: number;
 }
 
 export interface RouteLink {
@@ -181,6 +182,7 @@ export interface ServerSystemState {
   production: ProductionItem[];
   description: string;
   isCapital?: boolean;
+  sensorRange?: number;
 }
 
 export interface ServerUniverseState {
@@ -224,6 +226,41 @@ export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
 export interface AccountVisibility {
   sensor_system_ids: string[];
   visible_enemy_fleets: number;
+  colony_sensor_ranges?: Record<string, number>;
+}
+
+export interface TurnReportMovement {
+  fleetId: string;
+  fromSystemId: string;
+  toSystemId: string;
+}
+
+export interface TurnReportColonization {
+  fleetId: string;
+  systemId: string;
+  population?: number;
+}
+
+export interface TurnReportProduction {
+  systemId: string;
+  item: string;
+  industryCost: number;
+}
+
+export interface TurnReportData {
+  message?: string;
+  movements?: TurnReportMovement[];
+  colonizations?: TurnReportColonization[];
+  productions?: TurnReportProduction[];
+  warnings?: string[];
+  orders?: PlayerOrders;
+}
+
+export interface PreviousTurnReport {
+  turn_number: number;
+  year?: number;
+  published_at: string | null;
+  data: TurnReportData | null;
 }
 
 export interface AccountTurnStatus extends Record<string, unknown> {
@@ -231,6 +268,7 @@ export interface AccountTurnStatus extends Record<string, unknown> {
   turn: AccountTurnStatusTurn;
   state?: ServerGameState;
   visibility?: AccountVisibility;
+  previous_report?: PreviousTurnReport | null;
   players: AccountTurnStatusPlayer[];
   you: AccountTurnStatusYou;
 }

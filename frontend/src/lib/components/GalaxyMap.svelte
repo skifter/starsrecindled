@@ -41,6 +41,11 @@
     return fleet.ownerPlayerId ? OWNER_COLORS[ownerForPlayerId(fleet.ownerPlayerId, playerIds)] : OWNER_COLORS.neutral;
   }
 
+  function sensorRange(system: StarSystem): number {
+    if (system.ownerPlayerId !== currentPlayerId) return 0;
+    return Math.max(0, Math.min(3, Math.round(system.sensorRange ?? 1)));
+  }
+
   function systemStatus(system: StarSystem): string {
     if (system.ownerPlayerId === null || system.owner === 'neutral') return 'UNCLAIMED';
     if (system.ownerPlayerId === currentPlayerId) return system.isCapital ? 'YOUR CAPITAL' : 'YOUR COLONY';
@@ -177,6 +182,10 @@
             <circle class="selection-ring outer" r="38" /><circle class="selection-ring middle" r="29" /><circle class="selection-ring pulse" r="21" />
           {/if}
           {#if liveMode}
+            {@const scanRange = sensorRange(system)}
+            {#if scanRange >= 3}<ellipse class="sensor-orbit sensor-orbit-3" rx="34" ry="20" transform="rotate(-48)" />{/if}
+            {#if scanRange >= 2}<ellipse class="sensor-orbit sensor-orbit-2" rx="27" ry="16" transform="rotate(31)" />{/if}
+            {#if scanRange >= 1}<ellipse class="sensor-orbit sensor-orbit-1" rx="21" ry="12" transform="rotate(-17)" />{/if}
             <circle class="ownership-orbit" class:unclaimed={system.owner === 'neutral'} r={system.isCapital ? 15 : 12} />
           {/if}
           <circle class="star-glow" r={system.isCapital ? 17 : 12} />
@@ -221,7 +230,16 @@
   </div>
 
   <div class="minimap" aria-hidden="true">
-    <svg viewBox="0 0 100 70"><path class="mini player" d="M10 15Q38 3 58 23T48 58Q20 64 7 42Z"/><path class="mini crimson" d="M38 2Q68-2 72 17Q59 25 43 16Z"/><path class="mini violet" d="M62 12Q96 11 99 42Q88 67 61 55Z"/><path class="mini amber" d="M4 45Q26 39 36 67Q11 76 1 58Z"/><rect x={Math.max(2, 30 - panX / 25)} y={Math.max(2, 20 - panY / 25)} width={45 / zoom} height={32 / zoom}/></svg>
+    <svg viewBox="0 0 100 70">
+      {#if liveMode}
+        {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
+          {@const miniRange = sensorRange(system)}
+          {#if miniRange > 0}<circle class="mini-sensor" style={`--mini-color:${OWNER_COLORS[system.owner]}`} cx={system.x} cy={system.y * .62} r={4 + miniRange * 2.4}/>{/if}
+          <circle class="mini-colony" style={`--mini-color:${OWNER_COLORS[system.owner]}`} cx={system.x} cy={system.y * .62} r={system.isCapital ? 1.8 : 1.25}/>{/each}
+      {:else}
+        <path class="mini player" d="M10 15Q38 3 58 23T48 58Q20 64 7 42Z"/><path class="mini crimson" d="M38 2Q68-2 72 17Q59 25 43 16Z"/><path class="mini violet" d="M62 12Q96 11 99 42Q88 67 61 55Z"/><path class="mini amber" d="M4 45Q26 39 36 67Q11 76 1 58Z"/>
+      {/if}
+      <rect x={Math.max(2, 30 - panX / 25)} y={Math.max(2, 20 - panY / 25)} width={45 / zoom} height={32 / zoom}/></svg>
     <span>{Math.round(zoom * 100)}%</span>
   </div>
 
@@ -241,7 +259,7 @@
         </span>
       {/each}
       <span class="legend-entry unclaimed-entry"><i></i>Unclaimed</span>
-      <span class="legend-hint"><b>solid</b> colony · <b>dotted</b> unclaimed</span>
+      <span class="legend-hint"><b>orbit rings</b> colony sensors · <b>solid</b> colony · <b>dotted</b> unclaimed</span>
     {:else}
       <span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span>
     {/if}
@@ -261,7 +279,7 @@
   .system:focus-visible .selection-ring,.system:hover .star-glow { opacity:1 }
   .star-glow { fill:url(#starCore);color:var(--system-color);opacity:.72;filter:url(#glow);transition:.15s }
   .star { fill:#fff;stroke:var(--system-color);stroke-width:2;filter:url(#glow) }.star.colonized{stroke-width:3}
-  .ownership-orbit { fill:none;stroke:var(--system-color);stroke-width:2.4;opacity:.9 }.ownership-orbit.unclaimed{stroke:#dcecff;stroke-width:1.5;stroke-dasharray:3 3;opacity:.7}
+  .sensor-orbit{fill:none;stroke:var(--system-color);stroke-width:1;opacity:.58;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--system-color) 35%,transparent))}.sensor-orbit-2{stroke-dasharray:5 3;opacity:.47}.sensor-orbit-3{stroke-dasharray:2 4;opacity:.38}.ownership-orbit { fill:none;stroke:var(--system-color);stroke-width:2.4;opacity:.9 }.ownership-orbit.unclaimed{stroke:#dcecff;stroke-width:1.5;stroke-dasharray:3 3;opacity:.7}
   .system-label { fill:#b9cbd8;font-size:10px;letter-spacing:.9px;paint-order:stroke;stroke:#02070e;stroke-width:3px;stroke-linejoin:round }
   .system-status{fill:var(--system-color);font-size:6.7px;font-weight:700;letter-spacing:.65px;paint-order:stroke;stroke:#02070e;stroke-width:2.5px;stroke-linejoin:round}
   .selected .system-label { fill:#edfaff;font-weight:700 }
@@ -275,7 +293,7 @@
   .map-controls button:hover { background:rgba(12,55,83,.95);border-color:#48c8ff }
   .minimap { position:absolute;left:14px;bottom:14px;width:180px;height:90px;border:1px solid rgba(69,178,232,.42);background:rgba(1,8,15,.9);padding:5px }
   .minimap svg { cursor:default }.minimap .mini { stroke-width:.5;fill-opacity:.12 }.minimap .player { fill:#35c0ff;stroke:#35c0ff }.minimap .crimson { fill:#ff5f58;stroke:#ff5f58 }.minimap .violet { fill:#c864ef;stroke:#c864ef }.minimap .amber { fill:#f0ae39;stroke:#f0ae39 }.minimap rect { fill:none;stroke:#fff;stroke-width:1;opacity:.7 }
-  .minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
+  .minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
   .map-legend { position:absolute;top:12px;left:14px;max-width:calc(100% - 28px);display:flex;align-items:center;gap:.85rem;padding:.5rem .7rem;background:rgba(2,10,18,.86);border:1px solid rgba(65,159,210,.22);color:#7893a5;font-size:.68rem;overflow-x:auto;white-space:nowrap }
   .map-legend span::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.35rem }.friendly::before { background:#43c9ff;box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d;box-shadow:0 0 8px #ff645d }
   .legend-entry{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-hint{margin-left:.25rem;color:#5f798b}.legend-hint::before{display:none!important}.legend-hint b{color:#8eabba;font-weight:500}

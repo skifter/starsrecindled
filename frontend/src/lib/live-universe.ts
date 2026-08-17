@@ -65,6 +65,7 @@ export function mapLiveUniverse(
       fleets,
       description: system.description,
       isCapital: system.isCapital === true,
+      sensorRange: Math.max(0, Number(system.sensorRange ?? (system.ownerPlayerId === null ? 0 : 1))),
       isYours: system.ownerPlayerId === currentPlayerId
     };
   });
