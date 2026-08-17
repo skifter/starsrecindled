@@ -6,6 +6,7 @@
   export let systems: StarSystem[] = [];
   export let players: AccountTurnStatusPlayer[] = [];
   export let currentPlayerId = 0;
+  export let sensorSystemCount = 0;
   export let selectedFleetId = '';
   export let orders: PlayerOrders = { fleets: [], production: [] };
   export let editableTurn = false;
@@ -47,9 +48,9 @@
     <div>
       <p class="eyebrow">Live fleet command</p>
       <h1>Fleets</h1>
-      <p class="intro">Select a fleet to locate it on the galaxy map, or set a waypoint directly from this overview.</p>
+      <p class="intro">Select a fleet to locate it on the galaxy map, or set a waypoint directly from this overview. Enemy fleets are only listed when your sensors currently detect them.</p>
     </div>
-    <div class="fleet-summary"><span><strong>{ownRows.length}</strong><small>your fleets</small></span><span><strong>{totalShips.toLocaleString('en-US')}</strong><small>ships</small></span></div>
+    <div class="fleet-summary"><span><strong>{ownRows.length}</strong><small>your fleets</small></span><span><strong>{totalShips.toLocaleString('en-US')}</strong><small>ships</small></span><span><strong>{sensorSystemCount}</strong><small>systems scanned</small></span></div>
   </header>
 
   <div class="fleet-table panel-cut">
@@ -80,9 +81,12 @@
     {/if}
   </div>
 
-  {#if visibleOtherRows.length > 0}
-    <section class="other-fleets">
-      <h2>Other visible fleets</h2>
+  <section class="other-fleets">
+    <div class="other-title">
+      <div><h2>Other visible fleets</h2><p>Colonies scan their own system and all directly connected systems. Scout and Exploration fleets do the same. Other fleet types only reveal the system they occupy.</p></div>
+      <span>{visibleOtherRows.length} detected</span>
+    </div>
+    {#if visibleOtherRows.length > 0}
       <div class="other-grid">
         {#each visibleOtherRows as row}
           <button class="other-card" style={`--fleet-color:${fleetColor(row.fleet)}`} onclick={() => onLocate(row.fleet, row.system)}>
@@ -91,15 +95,17 @@
           </button>
         {/each}
       </div>
-    </section>
-  {/if}
+    {:else}
+      <div class="no-detections"><Icon name="research" size={24}/><span><strong>No enemy fleets detected</strong><small>Enemy fleets outside your current sensor coverage are not sent to this client.</small></span></div>
+    {/if}
+  </section>
 </section>
 
 <style>
   .fleets-view{height:100%;overflow:auto;padding:1.35rem;background:radial-gradient(circle at 46% 16%,rgba(15,89,128,.14),transparent 42%),#030912;color:#91a8b7}
   .view-header{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1rem}.eyebrow{margin:0 0 .3rem;color:#43c5ff;text-transform:uppercase;letter-spacing:.14em;font-size:.65rem}h1{margin:0;color:#edf9ff;font-size:1.65rem;font-weight:500;letter-spacing:.08em}.intro{max-width:680px;margin:.5rem 0 0;color:#7f98aa;font-size:.76rem;line-height:1.5}.fleet-summary{display:flex;gap:1.2rem}.fleet-summary span{text-align:right}.fleet-summary strong,.fleet-summary small{display:block}.fleet-summary strong{color:#e4f4fb;font-size:1rem}.fleet-summary small{margin-top:.15rem;color:#648296;text-transform:uppercase;font-size:.55rem;letter-spacing:.08em}
   .fleet-table{border:1px solid rgba(58,154,207,.24);background:rgba(4,16,28,.92);overflow:hidden}.fleet-row{display:grid;grid-template-columns:minmax(230px,1.5fr) minmax(130px,.8fr) 90px minmax(130px,.8fr) 190px;gap:.75rem;align-items:center;min-height:68px;padding:0 .85rem;border-bottom:1px solid rgba(57,132,173,.13);font-size:.72rem}.fleet-row:last-child{border-bottom:0}.table-head{min-height:38px;color:#55c8f8;text-transform:uppercase;letter-spacing:.09em;font-size:.59rem;background:rgba(9,38,57,.45)}.fleet-row.own{box-shadow:inset 3px 0 var(--fleet-color)}.fleet-row.selected{background:linear-gradient(90deg,rgba(255,208,92,.11),rgba(4,16,28,.2));box-shadow:inset 3px 0 #ffd05c}.fleet-name,.location{display:flex;align-items:center;gap:.55rem;min-width:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.fleet-name>span:last-child,.location{min-width:0}.fleet-name strong,.fleet-name small,.location strong,.location small,.ships strong,.ships small,.order-state strong,.order-state small{display:block}.fleet-name strong,.location strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d9eaf2;font-weight:500}.fleet-name small,.location small,.ships small,.order-state small{margin-top:.14rem;color:#6d899b;font-size:.56rem}.fleet-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--fleet-color) 55%,transparent);background:color-mix(in srgb,var(--fleet-color) 8%,transparent);color:var(--fleet-color)}.ships strong{color:#ecf7fb;font-size:.8rem}.order-state strong{color:#8bdcff;font-weight:500}.order-state small{color:#d3b969}.actions{display:flex;justify-content:flex-end;gap:.4rem}.actions button{min-height:34px;display:flex;align-items:center;gap:.3rem;padding:0 .55rem;border:1px solid rgba(65,159,207,.28);background:rgba(7,31,47,.8);color:#76ccef;font:inherit;font-size:.59rem;cursor:pointer}.actions .route{border-color:rgba(255,208,92,.35);color:#e5c461}.actions button:hover:not(:disabled){background:rgba(12,55,79,.95)}.actions button:disabled{opacity:.35;cursor:not-allowed}
-  .empty{min-height:210px;display:grid;place-items:center;align-content:center;gap:.45rem;color:#56caff}.empty p{margin:0;color:#738fa2}.other-fleets{margin-top:1rem}.other-fleets h2{margin:0 0 .55rem;color:#7d9bad;text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}.other-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.5rem}.other-card{min-height:58px;display:flex;align-items:center;gap:.55rem;padding:.5rem .65rem;border:1px solid rgba(60,137,178,.2);border-left:3px solid var(--fleet-color);background:rgba(4,17,29,.85);color:#899fae;text-align:left;cursor:pointer}.other-card span:last-child{min-width:0}.other-card strong,.other-card small{display:block}.other-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cadbe4;font-size:.69rem;font-weight:500}.other-card small{margin-top:.15rem;color:#667f90;font-size:.56rem}
+  .empty{min-height:210px;display:grid;place-items:center;align-content:center;gap:.45rem;color:#56caff}.empty p{margin:0;color:#738fa2}.other-fleets{margin-top:1rem}.other-title{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:.55rem}.other-title h2{margin:0;color:#7d9bad;text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}.other-title p{max-width:760px;margin:.32rem 0 0;color:#647f91;font-size:.6rem;line-height:1.45}.other-title>span{flex:none;color:#65cfff;font-size:.59rem;text-transform:uppercase;letter-spacing:.08em}.no-detections{min-height:64px;display:flex;align-items:center;gap:.65rem;padding:.65rem .8rem;border:1px solid rgba(60,137,178,.18);background:rgba(4,17,29,.72);color:#5ecbfa}.no-detections strong,.no-detections small{display:block}.no-detections strong{color:#bcd4e0;font-size:.68rem;font-weight:500}.no-detections small{margin-top:.16rem;color:#647f91;font-size:.57rem}.other-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.5rem}.other-card{min-height:58px;display:flex;align-items:center;gap:.55rem;padding:.5rem .65rem;border:1px solid rgba(60,137,178,.2);border-left:3px solid var(--fleet-color);background:rgba(4,17,29,.85);color:#899fae;text-align:left;cursor:pointer}.other-card span:last-child{min-width:0}.other-card strong,.other-card small{display:block}.other-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cadbe4;font-size:.69rem;font-weight:500}.other-card small{margin-top:.15rem;color:#667f90;font-size:.56rem}
   @media(max-width:1050px){.fleet-row{grid-template-columns:minmax(210px,1.4fr) minmax(120px,.8fr) 75px minmax(120px,.8fr)}.fleet-row>span:last-child{grid-column:4}.table-head>span:last-child{display:none}.actions{grid-column:auto}.actions button:first-child{display:none}}
   @media(max-width:720px){.fleets-view{padding:.8rem}.view-header{display:grid}.fleet-summary{justify-content:flex-start}.fleet-summary span{text-align:left}.fleet-row{grid-template-columns:1fr 80px;gap:.5rem;padding:.55rem .65rem}.table-head{display:none}.fleet-row>.location,.fleet-row>.order-state{grid-column:1}.fleet-row>.ships{grid-column:2;grid-row:1;text-align:right}.fleet-row>.actions{grid-column:2;grid-row:2/4;display:grid}.actions button{justify-content:center}.actions .route{display:flex!important}}
 </style>

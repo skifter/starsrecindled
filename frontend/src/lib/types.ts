@@ -221,10 +221,16 @@ export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
   orders: PlayerOrders;
 }
 
+export interface AccountVisibility {
+  sensor_system_ids: string[];
+  visible_enemy_fleets: number;
+}
+
 export interface AccountTurnStatus extends Record<string, unknown> {
   game: AccountTurnStatusGame;
   turn: AccountTurnStatusTurn;
   state?: ServerGameState;
+  visibility?: AccountVisibility;
   players: AccountTurnStatusPlayer[];
   you: AccountTurnStatusYou;
 }

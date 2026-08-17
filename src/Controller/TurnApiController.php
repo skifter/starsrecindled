@@ -8,6 +8,7 @@ use Bellcom\StarsTurnBundle\Application\TurnSubmissionService;
 use Bellcom\StarsTurnBundle\Repository\PlayerTurnRepository;
 use Bellcom\StarsTurnBundle\Repository\TurnRepository;
 use Bellcom\StarsTurnBundle\Security\PlayerTokenAuthenticator;
+use Bellcom\StarsTurnBundle\Service\PlayerVisibilityService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -22,6 +23,7 @@ final class TurnApiController extends AbstractController
         private readonly TurnRepository $turnRepository,
         private readonly PlayerTurnRepository $playerTurnRepository,
         private readonly TurnSubmissionService $submissionService,
+        private readonly PlayerVisibilityService $visibility,
     ) {
     }
 
@@ -51,6 +53,12 @@ final class TurnApiController extends AbstractController
             }
         }
 
+        $playerId = $player->getId();
+        if ($playerId === null) {
+            throw new \LogicException('Den autentificerede spiller mangler id.');
+        }
+        $projection = $this->visibility->project($turn->getInitialState(), $playerId);
+
         return $this->json([
             'game' => [
                 'id' => $turn->getGame()->getId(),
@@ -64,10 +72,14 @@ final class TurnApiController extends AbstractController
                 'queued_at' => $turn->getQueuedAt()?->format(DATE_ATOM),
                 'published_at' => $turn->getPublishedAt()?->format(DATE_ATOM),
             ],
-            'state' => $turn->getInitialState(),
+            'state' => $projection['state'],
+            'visibility' => [
+                'sensor_system_ids' => $projection['sensorSystemIds'],
+                'visible_enemy_fleets' => $projection['visibleEnemyFleetCount'],
+            ],
             'players' => $players,
             'you' => [
-                'id' => $player->getId(),
+                'id' => $playerId,
                 'name' => $player->getDisplayName(),
                 'orders' => $ownTurn?->getOrders() ?? [],
                 'submitted' => $ownTurn?->getSubmittedAt() !== null,
