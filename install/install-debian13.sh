@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 027
 IFS=$'\n\t'
 
-SCRIPT_VERSION="2026-08-17.3"
+SCRIPT_VERSION="2026-08-17.4"
 CURRENT_STEP="initialisering"
 
 # STARS_INSTALLER_CONFIG_061
@@ -72,6 +72,8 @@ PREVIOUS_CURRENT_KIND="none"
 PREVIOUS_CURRENT_TARGET=""
 DB_EXISTED="0"
 SWITCH_COMPLETED="0"
+UPDATE_MODE="0"
+UPDATE_SOURCE=""
 WEB_CHECK_HTTP_CODE=""
 WEB_CHECK_URL=""
 
@@ -142,6 +144,56 @@ run_as_app() {
                 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
                 "$@"
     )
+}
+
+# STARS_FAST_UPDATE_062
+# Kør en kommando som app-brugeren med løbende status og hård timeout.
+run_as_app_monitored() {
+    local timeout_seconds="$1"
+    local label="$2"
+    shift 2
+
+    local started="${SECONDS}"
+    local pid
+    local status
+
+    log "${label}"
+
+    (
+        run_as_app \
+            timeout \
+                --foreground \
+                --signal=TERM \
+                --kill-after=10s \
+                "${timeout_seconds}s" \
+                "$@"
+    ) &
+    pid="$!"
+
+    while kill -0 "${pid}" 2>/dev/null; do
+        sleep 15
+        if kill -0 "${pid}" 2>/dev/null; then
+            log "${label} - stadig i gang ($((SECONDS - started)) sek.)"
+        fi
+    done
+
+    if wait "${pid}"; then
+        status=0
+    else
+        status="$?"
+    fi
+
+    if [[ "${status}" == "124" || "${status}" == "137" ]]; then
+        warn "${label} overskred timeout på ${timeout_seconds} sekunder."
+        return 124
+    fi
+
+    if [[ "${status}" != "0" ]]; then
+        warn "${label} fejlede med exitkode ${status}."
+        return "${status}"
+    fi
+
+    log "${label} - OK efter $((SECONDS - started)) sek."
 }
 
 run_console() {
@@ -528,6 +580,7 @@ require_command npm
 require_command openssl
 require_command php
 require_command runuser
+require_command timeout
 
 PHP_BIN="$(command -v php)"
 PHP_VERSION="$(${PHP_BIN} -r 'printf("%d.%d", PHP_MAJOR_VERSION, PHP_MINOR_VERSION);')"
@@ -686,41 +739,112 @@ mariadb \
 rm -f "${DB_CLIENT_CONFIG}"
 
 CURRENT_STEP="kontrol af package repository"
-log "Kontrollerer adgang til ${PACKAGE_REPOSITORY} ..."
-run_as_app git ls-remote "${PACKAGE_REPOSITORY}" HEAD >/dev/null
+run_as_app_monitored \
+    90 \
+    "Kontrollerer adgang til ${PACKAGE_REPOSITORY}" \
+    git ls-remote "${PACKAGE_REPOSITORY}" HEAD >/dev/null
 log "Repository: OK"
 
-CURRENT_STEP="oprettelse af Symfony-værtsapplikation"
-log "Opretter Symfony-værtsapplikation ${SYMFONY_VERSION} ..."
-COMPOSER_STEP_STARTED="${SECONDS}"
-install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0755 "${RELEASE_ROOT}"
-rmdir "${RELEASE_ROOT}"
+case "${PREVIOUS_CURRENT_KIND}" in
+    symlink)
+        if [[ -n "${PREVIOUS_CURRENT_TARGET}" && -d "${PREVIOUS_CURRENT_TARGET}" ]]; then
+            UPDATE_SOURCE="${PREVIOUS_CURRENT_TARGET}"
+        fi
+        ;;
+    directory)
+        if [[ -d "${APP_ROOT}" ]]; then
+            UPDATE_SOURCE="${APP_ROOT}"
+        fi
+        ;;
+esac
 
-run_as_app composer create-project \
-    "symfony/skeleton:${SYMFONY_VERSION}" \
-    "${RELEASE_ROOT}" \
-    --prefer-dist \
-    --no-interaction \
+if [[ \
+    -n "${UPDATE_SOURCE}" \
+    && -f "${UPDATE_SOURCE}/composer.json" \
+    && -f "${UPDATE_SOURCE}/bin/console" \
+    && -d "${UPDATE_SOURCE}/vendor/skifter/starsrecindled" \
+]]; then
+    UPDATE_MODE="1"
+    CURRENT_STEP="oprettelse af update-release fra current"
+    log "Eksisterende installation fundet."
+    log "Update-base: ${UPDATE_SOURCE}"
+    log "Kopierer aktiv release lokalt; Symfony create-project springes over."
 
-run_as_app composer \
-    --working-dir="${RELEASE_ROOT}" \
-    config repositories.starsrecindled vcs "${PACKAGE_REPOSITORY}"
+    install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0755 "${RELEASE_ROOT}"
 
-log "Symfony skeleton klar efter $((SECONDS - COMPOSER_STEP_STARTED)) sek."
-log "Henter Stars-pakken og Composer-afhængigheder. Dette kan tage nogle minutter ..."
-COMPOSER_STEP_STARTED="${SECONDS}"
-run_as_app composer \
-    --working-dir="${RELEASE_ROOT}" \
-    require \
-    "skifter/starsrecindled:${PACKAGE_VERSION}" \
-    symfony/orm-pack \
-    doctrine/doctrine-migrations-bundle \
-    symfony/mailer \
-    symfony/monolog-bundle \
-    --with-all-dependencies \
-    --no-interaction \
+    rsync \
+        -a \
+        --exclude='var/cache/' \
+        --exclude='var/log/' \
+        --exclude='frontend/node_modules/' \
+        "${UPDATE_SOURCE}/" \
+        "${RELEASE_ROOT}/"
 
-log "Stars-pakken og Composer-afhængigheder klar efter $((SECONDS - COMPOSER_STEP_STARTED)) sek."
+    install -d \
+        -o "${APP_USER}" -g "${APP_GROUP}" -m 0770 \
+        "${RELEASE_ROOT}/var" \
+        "${RELEASE_ROOT}/var/cache" \
+        "${RELEASE_ROOT}/var/log"
+
+    chown -R "${APP_USER}:${APP_GROUP}" "${RELEASE_ROOT}"
+
+    run_as_app composer \
+        --working-dir="${RELEASE_ROOT}" \
+        config repositories.starsrecindled vcs "${PACKAGE_REPOSITORY}"
+
+    CURRENT_STEP="opdatering af Stars Composer-pakke"
+    run_as_app_monitored \
+        900 \
+        "Opdaterer Stars-pakken fra Git repository" \
+        composer \
+            --working-dir="${RELEASE_ROOT}" \
+            update \
+            "skifter/starsrecindled" \
+            --with-all-dependencies \
+            --prefer-source \
+            --no-interaction \
+            --no-scripts \
+            --no-plugins \
+            --ansi
+else
+    UPDATE_MODE="0"
+    CURRENT_STEP="oprettelse af Symfony-værtsapplikation"
+    install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0755 "${RELEASE_ROOT}"
+    rmdir "${RELEASE_ROOT}"
+
+    run_as_app_monitored \
+        900 \
+        "Opretter ny Symfony-værtsapplikation ${SYMFONY_VERSION}" \
+        composer \
+            create-project \
+            "symfony/skeleton:${SYMFONY_VERSION}" \
+            "${RELEASE_ROOT}" \
+            --prefer-dist \
+            --no-interaction \
+            --ansi
+
+    run_as_app composer \
+        --working-dir="${RELEASE_ROOT}" \
+        config repositories.starsrecindled vcs "${PACKAGE_REPOSITORY}"
+
+    CURRENT_STEP="installation af Stars Composer-pakke"
+    run_as_app_monitored \
+        900 \
+        "Henter Stars-pakken og Composer-afhængigheder" \
+        composer \
+            --working-dir="${RELEASE_ROOT}" \
+            require \
+            "skifter/starsrecindled:${PACKAGE_VERSION}" \
+            symfony/orm-pack \
+            doctrine/doctrine-migrations-bundle \
+            symfony/mailer \
+            symfony/monolog-bundle \
+            --with-all-dependencies \
+            --prefer-source \
+            --no-interaction \
+            --ansi
+fi
+
 PACKAGE_ROOT="${RELEASE_ROOT}/vendor/skifter/starsrecindled"
 test -f "${PACKAGE_ROOT}/composer.json"
 test -f "${PACKAGE_ROOT}/examples/symfony/config/packages/stars_turn.yaml"
@@ -822,13 +946,34 @@ install -d \
 
 chown -R "${APP_USER}:${APP_GROUP}" "${RELEASE_ROOT}"
 
-run_as_app composer \
-    --working-dir="${RELEASE_ROOT}" \
-    install \
-    --no-dev \
-    --optimize-autoloader \
-    --classmap-authoritative \
-    --no-interaction \
+CURRENT_STEP="optimering af PHP-afhængigheder"
+if [[ "${UPDATE_MODE}" == "1" ]]; then
+    run_as_app_monitored \
+        600 \
+        "Optimerer PHP-autoload for update-release" \
+        composer \
+            --working-dir="${RELEASE_ROOT}" \
+            install \
+            --no-dev \
+            --optimize-autoloader \
+            --classmap-authoritative \
+            --no-interaction \
+            --no-scripts \
+            --no-plugins \
+            --ansi
+else
+    run_as_app_monitored \
+        600 \
+        "Optimerer PHP-autoload" \
+        composer \
+            --working-dir="${RELEASE_ROOT}" \
+            install \
+            --no-dev \
+            --optimize-autoloader \
+            --classmap-authoritative \
+            --no-interaction \
+            --ansi
+fi
 
 CURRENT_STEP="bygning af Svelte-frontend"
 rm -rf "${RELEASE_ROOT}/frontend"
@@ -1131,6 +1276,11 @@ write_rollback_script
 ln -sfn "${BACKUP_DIR}" "${BACKUP_BASE}/last-install"
 
 printf '\nStars Recindled er installeret.\n'
+if [[ "${UPDATE_MODE}" == "1" ]]; then
+    printf 'Installationstype: UPDATE (current genbrugt; ingen Symfony create-project)\n'
+else
+    printf 'Installationstype: NY INSTALLATION\n'
+fi
 printf 'Adresse:       %s\n' "${FRONTEND_URL}"
 printf 'Applikation:   %s -> %s\n' "${APP_ROOT}" "${RELEASE_ROOT}"
 printf 'Database:      %s\n' "${DB_NAME}"
