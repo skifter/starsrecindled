@@ -38,7 +38,8 @@ export function mapLiveUniverse(
         destination: fleet.destinationSystemId ? systemNames.get(fleet.destinationSystemId) : undefined,
         ownerPlayerId: fleet.ownerPlayerId,
         systemId: fleet.systemId,
-        targetSystemId: fleet.destinationSystemId
+        targetSystemId: fleet.destinationSystemId,
+        colonizationCapacity: fleet.colonizationCapacity
       }));
 
     return {

@@ -61,7 +61,9 @@
   <section class="panel-section">
     <h3>Fleets in system</h3>
     {#if system.fleets.length}
-      {#each system.fleets as fleet}<div class="fleet-row"><Icon name="fleet" size={16}/><span>{fleet.name}</span><strong>{fleet.ships.toLocaleString('en-US')}</strong></div>{/each}
+      {#each system.fleets as fleet}
+        <div class="fleet-row"><Icon name="fleet" size={16}/><span>{fleet.name}{#if (fleet.colonizationCapacity ?? (fleet.role === 'Exploration fleet' ? 1 : 0)) > 0}<small>Colony module ×{fleet.colonizationCapacity ?? 1}</small>{/if}</span><strong>{fleet.ships.toLocaleString('en-US')}</strong></div>
+      {/each}
     {:else}<p class="empty">No friendly fleet present.</p>{/if}
     <button class="text-action" onclick={onWaypoint}><Icon name="plus" size={15}/> Plan fleet route</button>
   </section>
@@ -78,5 +80,5 @@
   .panel-section { padding:.8rem 1rem; border-bottom:1px solid rgba(62,164,218,.18) }.panel-section h3 { margin:0 0 .65rem; color:#49c5ff; text-transform:uppercase; letter-spacing:.08em; font-size:.68rem }.resources { display:flex; justify-content:space-between; gap:.4rem }.resources div { display:flex; align-items:center; gap:.25rem; color:#74d0fb }.resources strong { color:#dae9f2; font-size:.72rem }
   .queue { display:grid; gap:.55rem }.queue-item { display:grid; grid-template-columns:20px 1fr 20px; gap:.45rem; align-items:center; color:#5fcaff }.queue-item span strong { display:block; color:#bcd0dc; font-size:.72rem; font-weight:500 }.queue-item span i { display:block; height:3px; background:#152b39; margin-top:.3rem }.queue-item span b { display:block; height:100%; background:#42ccff; box-shadow:0 0 8px rgba(66,204,255,.4) }.queue-item em { color:#dcecf5; font-style:normal; font-size:.72rem; text-align:right }
   .text-action { margin-top:.65rem; border:0; background:transparent; color:#4bc7ff; font:inherit; font-size:.7rem; display:flex; align-items:center; gap:.3rem; cursor:pointer; padding:0 }.text-action:hover { color:#dff7ff }.split-title { display:grid; grid-template-columns:1fr auto }.split-title h3 { grid-column:1 }.split-title>span { grid-column:2; color:#dcebf3; font-size:.75rem }.defense-row { grid-column:1/-1; display:flex; gap:.7rem; align-items:center; color:#8dcdf0 }.defense-row div { display:flex; gap:5px }.defense-row i { width:19px; height:12px; border:1px solid #568eb0; background:linear-gradient(180deg,#2d6689,#102334); clip-path:polygon(40% 0,60% 0,70% 35%,100% 50%,85% 100%,15% 100%,0 50%,30% 35%) }
-  .fleet-row { display:grid; grid-template-columns:20px 1fr auto; gap:.45rem; align-items:center; padding:.45rem 0; color:#62caff; border-bottom:1px solid rgba(65,132,170,.09) }.fleet-row span { color:#adc2cf; font-size:.72rem }.fleet-row strong { color:#e1edf4; font-size:.72rem }.empty { color:#71899b; font-size:.72rem; margin:.4rem 0 }.description { margin:0; padding:1rem; color:#738b9d; font-size:.7rem; line-height:1.5 }
+  .fleet-row { display:grid; grid-template-columns:20px 1fr auto; gap:.45rem; align-items:center; padding:.45rem 0; color:#62caff; border-bottom:1px solid rgba(65,132,170,.09) }.fleet-row span { color:#adc2cf; font-size:.72rem }.fleet-row span small{display:block;margin-top:.12rem;color:#d6b25a;font-size:.58rem;text-transform:uppercase;letter-spacing:.05em}.fleet-row strong { color:#e1edf4; font-size:.72rem }.empty { color:#71899b; font-size:.72rem; margin:.4rem 0 }.description { margin:0; padding:1rem; color:#738b9d; font-size:.7rem; line-height:1.5 }
 </style>

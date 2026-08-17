@@ -96,6 +96,7 @@ export interface FleetSummary {
   ownerPlayerId?: number;
   systemId?: string;
   targetSystemId?: string;
+  colonizationCapacity?: number;
 }
 
 export interface StarSystem {
@@ -158,6 +159,7 @@ export interface ServerFleetState {
   ships: number;
   role: string;
   destinationSystemId?: string;
+  colonizationCapacity?: number;
 }
 
 export interface ServerSystemState {

@@ -63,6 +63,9 @@
   $: gameRoutes = demoMode ? demoRoutes : liveUniverse.routes;
   $: gameYear = demoMode ? 2195 + serverTurnNumber : (status?.state?.year ?? (2400 + serverTurnNumber - 1));
   $: ownFleetInSelected = selectedSystem?.fleets.find((fleet) => fleet.ownerPlayerId === connection.playerId) ?? null;
+  $: colonizerInSelected = selectedSystem?.fleets.find((fleet) =>
+    fleet.ownerPlayerId === connection.playerId && colonyCapacity(fleet) > 0
+  ) ?? null;
   $: plannedRoutes = demoMode ? [] : (orders.fleets ?? []).flatMap((order): RouteLink[] => {
     if (order.action !== 'move' || !order.targetSystemId) return [];
     const source = gameSystems.find((system) => system.fleets.some((fleet) => fleet.id === order.fleetId));
@@ -128,6 +131,11 @@
     );
   }
 
+  function colonyCapacity(fleet: FleetSummary): number {
+    if (typeof fleet.colonizationCapacity === 'number') return fleet.colonizationCapacity;
+    return fleet.role === 'Exploration fleet' ? 1 : 0;
+  }
+
   function serverUniverseReady(): boolean {
     if (demoMode) return true;
     if (gameSystems.length > 0) return true;
@@ -153,12 +161,29 @@
       return;
     }
 
-    if (action !== 'move') {
-      localNotice = 'Colonization will be enabled after fleet movement is verified.';
-      return;
-    }
     if (!editableTurn) {
       localNotice = 'Reopen the turn before changing fleet orders.';
+      return;
+    }
+
+    if (action === 'colonize') {
+      if (selectedSystem.ownerPlayerId !== null) {
+        localNotice = 'Select an unclaimed system to establish a colony.';
+        return;
+      }
+
+      const fleet = colonizerInSelected;
+      if (!fleet) {
+        localNotice = 'A fleet with an unused colony module must be present in the unclaimed system.';
+        return;
+      }
+
+      const nextFleetOrders = (orders.fleets ?? []).filter((order) => order.fleetId !== fleet.id);
+      updateOrders(
+        { ...orders, fleets: [...nextFleetOrders, { fleetId: fleet.id, action: 'colonize', targetSystemId: selectedSystem.id }] },
+        `${fleet.name} will establish a colony in ${selectedSystem.name} when the turn is processed.`
+      );
+      planningFleet = null;
       return;
     }
 
@@ -238,7 +263,7 @@
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>
           <h2>{navigation.find((item) => item.id === activeSection)?.label ?? activeSection}</h2>
-          <p>This section is not connected to the live game state yet. Galaxy fleet movement is the first enabled gameplay system in 0.5.1.</p>
+          <p>This section is not connected to the live game state yet. Live galaxy actions currently include fleet movement and colonization.</p>
         </section>
       {:else}
         <SectionViews section={activeSection} {status} onSelectSystem={selectSystem} onResearch={prioritizeResearch}/>
@@ -255,7 +280,7 @@
 
   <footer class="command-bar">
     <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? 'Move selected fleet' : 'Select your fleet system'}</small></span></button>
-    <button onclick={() => addWaypoint('colonize')} disabled={!demoMode || selectedSystem?.owner !== 'neutral'}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode && selectedSystem ? (selectedSystem.owner === 'neutral' ? 'Establish colony' : 'Select unclaimed system') : 'Coming after movement'}</small></span></button>
+    <button onclick={() => addWaypoint('colonize')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== null || !colonizerInSelected)) || (demoMode && selectedSystem.owner !== 'neutral')}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode ? 'Establish colony' : selectedSystem?.ownerPlayerId !== null ? 'Select unclaimed system' : colonizerInSelected ? `${colonyCapacity(colonizerInSelected)} colony module` : 'Requires colony module'}</small></span></button>
     <button onclick={() => addProduction('Orbital Factory')} disabled={!demoMode || selectedSystem?.owner !== 'player'}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : 'Coming later'}</small></span></button>
     <button onclick={() => (activeSection = 'research')} disabled={!demoMode}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : 'Coming later'}</small></span></button>
     {#if ownSubmitted && serverTurnStatus === 'open' && !demoMode}

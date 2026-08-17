@@ -50,6 +50,7 @@ final class StartUniverseGenerator
                 'name' => $player['name'].' 1st Expeditionary Fleet',
                 'ships' => 120,
                 'role' => 'Exploration fleet',
+                'colonizationCapacity' => 1,
             ];
         }
 
