@@ -468,7 +468,7 @@
           onPlanRoute={beginWaypointForFleet}
         />
       {:else if activeSection === 'report' && !demoMode}
-        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet}/>
+        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet} onOpenOrders={openTechnical}/>
       {:else if !demoMode}
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>

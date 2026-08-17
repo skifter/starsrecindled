@@ -5,6 +5,7 @@
   export let report: PreviousTurnReport | null = null;
   export let systems: StarSystem[] = [];
   export let onOpenSystem: (system: StarSystem) => void = () => {};
+  export let onOpenOrders: () => void = () => {};
 
   $: data = report?.data ?? null;
   $: movements = data?.movements ?? [];
@@ -24,6 +25,29 @@
 
   function fleetName(id: string): string {
     return systems.flatMap((entry) => entry.fleets).find((fleet) => fleet.id === id)?.name ?? id;
+  }
+
+  function warningSystem(warning: string): StarSystem | null {
+    const needle = warning.toLocaleLowerCase('en-US');
+
+    // Prefer explicit system id/name references in the engine warning.
+    const direct = systems.find((entry) =>
+      needle.includes(entry.id.toLocaleLowerCase('en-US'))
+      || needle.includes(entry.name.toLocaleLowerCase('en-US'))
+    );
+    if (direct) return direct;
+
+    // Fleet validation warnings usually mention the fleet id. If the fleet is
+    // still known, take the player directly to its current system.
+    for (const entry of systems) {
+      const fleet = entry.fleets.find((candidate) =>
+        needle.includes(candidate.id.toLocaleLowerCase('en-US'))
+        || needle.includes(candidate.name.toLocaleLowerCase('en-US'))
+      );
+      if (fleet) return entry;
+    }
+
+    return null;
   }
 
   function open(id: string): void {
@@ -59,7 +83,18 @@
       <section class="attention panel-cut">
         <header><Icon name="report" size={21}/><span><strong>Requires attention</strong><small>Orders that could not be completed or need review.</small></span></header>
         <div class="events">
-          {#each warnings as warning}<article class="event warning-event"><Icon name="report" size={17}/><p>{warning}</p></article>{/each}
+          {#each warnings as warning}
+            {@const target = warningSystem(warning)}
+            <article class="event warning-event">
+              <Icon name="report" size={17}/>
+              <div><strong>Action required</strong><p>{warning}</p></div>
+              {#if target}
+                <button class="attention-action" onclick={() => open(target.id)}>Open {target.name}</button>
+              {:else}
+                <button class="attention-action" onclick={onOpenOrders}>Review orders</button>
+              {/if}
+            </article>
+          {/each}
         </div>
       </section>
     {/if}
@@ -135,6 +170,6 @@
 
 <style>
   .report-view{height:100%;overflow:auto;box-sizing:border-box;padding:1.35rem;background:radial-gradient(circle at 45% 12%,rgba(18,93,129,.13),transparent 44%),#030912;color:#8ea5b5}.view-header{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1rem}.eyebrow{margin:0 0 .3rem;color:#43c5ff;text-transform:uppercase;letter-spacing:.14em;font-size:.65rem}h1{margin:0;color:#edf9ff;font-size:1.65rem;font-weight:500;letter-spacing:.08em}.intro{max-width:760px;margin:.5rem 0 0;color:#7f98aa;font-size:.76rem;line-height:1.5}.summary{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:flex-end}.summary span{text-align:right}.summary strong,.summary small{display:block}.summary strong{color:#e4f4fb;font-size:.95rem}.summary small{margin-top:.12rem;color:#648296;text-transform:uppercase;font-size:.54rem;letter-spacing:.08em}.summary .warning strong{color:#efb55a}
-  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event p{margin:0;color:#d1a06c}.success-event{color:#71cf96}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
+  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event strong{color:#efbd78}.warning-event p{color:#d1a06c}.warning-event .attention-action{border-color:rgba(229,155,71,.42);background:rgba(66,40,12,.62);color:#efbd78}.success-event{color:#71cf96}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
   @media(max-width:800px){.view-header{display:grid}.summary{justify-content:flex-start}.summary span{text-align:left}.event{grid-template-columns:26px minmax(0,1fr)}.event button{grid-column:2;justify-self:start}.report-view{padding:.8rem}}
 </style>

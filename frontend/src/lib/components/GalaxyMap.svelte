@@ -20,6 +20,8 @@
   $: byId = new Map(systems.map((system) => [system.id, system]));
   $: playerIds = players.map((player) => player.id);
   $: sensorSet = new Set(sensorSystemIds);
+  $: adjacency = buildAdjacency();
+  $: empireTerritories = buildEmpireTerritories();
   let zoom = 1;
   let panX = 0;
   let panY = 0;
@@ -29,6 +31,158 @@
   let startPanX = 0;
   let startPanY = 0;
   let moved = false;
+
+  type Point = { x: number; y: number };
+  type EmpireTerritory = {
+    ownerPlayerId: number;
+    owner: Owner;
+    memory: boolean;
+    path: string;
+    systemIds: string[];
+  };
+
+  function buildAdjacency(): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    for (const system of systems) map.set(system.id, []);
+    for (const route of routes) {
+      if (!map.has(route.from) || !map.has(route.to)) continue;
+      map.get(route.from)?.push(route.to);
+      map.get(route.to)?.push(route.from);
+    }
+    return map;
+  }
+
+  function colonyCoverage(ownerPlayerId: number): Set<string> {
+    const covered = new Set<string>();
+    const colonies = systems.filter((system) => system.ownerPlayerId === ownerPlayerId);
+
+    for (const colony of colonies) {
+      const range = Math.max(1, Math.min(3, Math.round(colony.sensorRange ?? 1)));
+      const visited = new Set<string>([colony.id]);
+      let frontier = [colony.id];
+      covered.add(colony.id);
+
+      for (let depth = 0; depth < range; depth += 1) {
+        const next: string[] = [];
+        for (const id of frontier) {
+          for (const neighbour of adjacency.get(id) ?? []) {
+            if (visited.has(neighbour)) continue;
+            visited.add(neighbour);
+            covered.add(neighbour);
+            next.push(neighbour);
+          }
+        }
+        if (next.length === 0) break;
+        frontier = next;
+      }
+    }
+
+    return covered;
+  }
+
+  function connectedCoverageComponents(covered: Set<string>): string[][] {
+    const components: string[][] = [];
+    const remaining = new Set(covered);
+
+    while (remaining.size > 0) {
+      const first = remaining.values().next().value as string;
+      const queue = [first];
+      const component: string[] = [];
+      remaining.delete(first);
+
+      while (queue.length > 0) {
+        const id = queue.shift() as string;
+        component.push(id);
+        for (const neighbour of adjacency.get(id) ?? []) {
+          if (!remaining.has(neighbour)) continue;
+          remaining.delete(neighbour);
+          queue.push(neighbour);
+        }
+      }
+
+      components.push(component);
+    }
+
+    return components;
+  }
+
+  function cross(o: Point, a: Point, b: Point): number {
+    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  }
+
+  function convexHull(points: Point[]): Point[] {
+    if (points.length <= 2) return [...points];
+    const sorted = [...points].sort((a, b) => a.x === b.x ? a.y - b.y : a.x - b.x);
+    const lower: Point[] = [];
+    for (const point of sorted) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+      lower.push(point);
+    }
+    const upper: Point[] = [];
+    for (const point of [...sorted].reverse()) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+      upper.push(point);
+    }
+    lower.pop();
+    upper.pop();
+    return [...lower, ...upper];
+  }
+
+  function territoryPath(systemIds: string[]): string {
+    const centers = systemIds
+      .map((id) => byId.get(id))
+      .filter((system): system is StarSystem => Boolean(system))
+      .map((system) => ({ x: system.x * 10, y: system.y * 6.2 }));
+    if (centers.length === 0) return '';
+
+    // Buffer each covered system before taking the hull. This creates one clean
+    // outer empire boundary instead of circles/corridors around every colony.
+    const buffered: Point[] = [];
+    const radius = centers.length === 1 ? 49 : 42;
+    for (const center of centers) {
+      for (let i = 0; i < 12; i += 1) {
+        const angle = (Math.PI * 2 * i) / 12;
+        buffered.push({
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        });
+      }
+    }
+
+    const hull = convexHull(buffered);
+    if (hull.length === 0) return '';
+    return `M ${hull.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' L ')} Z`;
+  }
+
+  function buildEmpireTerritories(): EmpireTerritory[] {
+    const ownerIds = [...new Set(
+      systems
+        .map((system) => system.ownerPlayerId)
+        .filter((id): id is number => typeof id === 'number' && id > 0)
+    )];
+    const territories: EmpireTerritory[] = [];
+
+    for (const ownerPlayerId of ownerIds) {
+      const covered = colonyCoverage(ownerPlayerId);
+      for (const component of connectedCoverageComponents(covered)) {
+        const ownerColonies = systems.filter((system) =>
+          system.ownerPlayerId === ownerPlayerId && component.includes(system.id)
+        );
+        if (ownerColonies.length === 0) continue;
+        const path = territoryPath(component);
+        if (!path) continue;
+        territories.push({
+          ownerPlayerId,
+          owner: ownerForPlayerId(ownerPlayerId, playerIds),
+          memory: ownerColonies.every((system) => system.visibilityState === 'explored'),
+          path,
+          systemIds: component,
+        });
+      }
+    }
+
+    return territories;
+  }
 
   function starPoint(id: string): { x: number; y: number } {
     const system = byId.get(id);
@@ -156,26 +310,12 @@
         <path class="territory violet" d="M626 122 C774 88 955 120 1004 274 L1004 520 C875 554 741 507 670 438 C610 358 580 217 626 122Z" />
         <path class="territory amber" d="M54 390 C180 363 328 420 354 548 C282 636 118 648 20 564 C1 491 15 435 54 390Z" />
       {:else}
-        {#each routes as route}
-          {@const a = byId.get(route.from)}
-          {@const b = byId.get(route.to)}
-          {#if a && b && a.ownerPlayerId !== null && a.ownerPlayerId === b.ownerPlayerId}
-            <line
-              class="territory-corridor"
-              class:memory={a.visibilityState === 'explored' || b.visibilityState === 'explored'}
-              style={`--territory-color:${OWNER_COLORS[a.owner]}`}
-              x1={a.x * 10} y1={a.y * 6.2} x2={b.x * 10} y2={b.y * 6.2}
-            />
-          {/if}
-        {/each}
-        {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
-          <circle
-            class="territory-zone"
-            class:memory={system.visibilityState === 'explored'}
-            style={`--territory-color:${OWNER_COLORS[system.owner]}`}
-            cx={system.x * 10}
-            cy={system.y * 6.2}
-            r={system.isCapital ? 82 : 66}
+        {#each empireTerritories as territory}
+          <path
+            class="empire-territory-fill"
+            class:memory={territory.memory}
+            style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
+            d={territory.path}
           />
         {/each}
       {/if}
@@ -250,7 +390,11 @@
 
           <text class="system-label" y="20" text-anchor="middle">{system.name.toUpperCase()}</text>
           {#if liveMode}<text class="system-status" y="31" text-anchor="middle">{systemStatus(system)}</text>{/if}
-          {#if system.visibilityState === 'explored'}
+          {#if selectedId === system.id}
+            <text class:stale={system.visibilityState === 'explored'} class="selection-intel" y="41" text-anchor="middle">
+              {system.visibilityState === 'explored' ? `LAST SEEN · T${system.lastSeenTurn ?? '?'}` : `VISIBLE NOW · T${system.lastSeenTurn ?? '?'}`}
+            </text>
+          {:else if system.visibilityState === 'explored'}
             <text class="last-seen" y="41" text-anchor="middle">LAST SEEN T{system.lastSeenTurn ?? '?'}</text>
           {/if}
         </g>
@@ -260,6 +404,15 @@
 
       {#if liveMode}
         <rect class="fog-layer" x="-1300" y="-1000" width="3600" height="2700" mask="url(#liveFogMask)" />
+        {#each empireTerritories as territory}
+          <path
+            class="empire-territory-border"
+            class:memory={territory.memory}
+            class:own={territory.ownerPlayerId === currentPlayerId}
+            style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
+            d={territory.path}
+          />
+        {/each}
       {/if}
     </g>
   </svg>
@@ -284,15 +437,8 @@
         </mask>
       </defs>
       {#if liveMode}
-        {#each routes as route}
-          {@const a = byId.get(route.from)}
-          {@const b = byId.get(route.to)}
-          {#if a && b && a.ownerPlayerId !== null && a.ownerPlayerId === b.ownerPlayerId}
-            <line class="mini-territory-link" class:memory={a.visibilityState === 'explored' || b.visibilityState === 'explored'} style={`--mini-color:${OWNER_COLORS[a.owner]}`} x1={a.x} y1={a.y * .62} x2={b.x} y2={b.y * .62}/>
-          {/if}
-        {/each}
-        {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
-          <circle class="mini-territory" class:memory={system.visibilityState === 'explored'} style={`--mini-color:${OWNER_COLORS[system.owner]}`} cx={system.x} cy={system.y * .62} r={system.isCapital ? 8 : 6}/>
+        {#each empireTerritories as territory}
+          <path class="mini-territory-fill" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={territory.path} transform="scale(.1)"/>
         {/each}
         {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
           {@const miniRange = sensorRange(system)}
@@ -300,6 +446,9 @@
           <circle class="mini-colony" class:memory={system.visibilityState === 'explored'} style={`--mini-color:${OWNER_COLORS[system.owner]}`} cx={system.x} cy={system.y * .62} r={system.isCapital ? 1.8 : 1.25}/>
         {/each}
         <rect class="mini-fog" x="-10" y="-10" width="120" height="90" mask="url(#miniFogMask)"/>
+        {#each empireTerritories as territory}
+          <path class="mini-territory-border" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={territory.path} transform="scale(.1)"/>
+        {/each}
       {:else}
         <path class="mini player" d="M10 15Q38 3 58 23T48 58Q20 64 7 42Z"/><path class="mini crimson" d="M38 2Q68-2 72 17Q59 25 43 16Z"/><path class="mini violet" d="M62 12Q96 11 99 42Q88 67 61 55Z"/><path class="mini amber" d="M4 45Q26 39 36 67Q11 76 1 58Z"/>
       {/if}
@@ -324,7 +473,7 @@
         </span>
       {/each}
       <span class="legend-entry unclaimed-entry"><i></i>Unclaimed</span>
-      <span class="legend-hint"><b>bright</b> visible now · <b>faded</b> last known · dark space unexplored</span>
+      <span class="legend-hint"><b>border</b> colony sensor territory · <b>bright</b> visible now · <b>faded</b> last known</span>
     {:else}
       <span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span>
     {/if}
@@ -337,7 +486,7 @@
   .galaxy-map.dragging>svg { cursor:grabbing }
   .territory { fill-opacity:.035;stroke-width:1.3;stroke-dasharray:5 4 }
   .territory.player { fill:#37bfff;stroke:#37bfff }.territory.crimson { fill:#ff544f;stroke:#ff544f }.territory.violet { fill:#bd55ed;stroke:#bd55ed }.territory.amber { fill:#e7a72c;stroke:#e7a72c }
-  .territory-zone{fill:var(--territory-color);stroke:var(--territory-color);stroke-width:1.2;fill-opacity:.12;stroke-opacity:.24;filter:url(#territoryBlur);pointer-events:none}.territory-zone.memory{fill-opacity:.055;stroke-opacity:.12;stroke-dasharray:5 6}.territory-corridor{stroke:var(--territory-color);stroke-width:82;stroke-linecap:round;stroke-opacity:.055;filter:url(#territoryBlur);pointer-events:none}.territory-corridor.memory{stroke-opacity:.025}
+  .empire-territory-fill{fill:var(--territory-color);fill-opacity:.045;stroke:none;filter:url(#territoryBlur);pointer-events:none}.empire-territory-fill.memory{fill-opacity:.018}.empire-territory-border{fill:none;stroke:var(--territory-color);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.66;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--territory-color) 30%,transparent))}.empire-territory-border.own{stroke-width:2.3;stroke-opacity:.82}.empire-territory-border.memory{stroke-opacity:.28;stroke-dasharray:7 6;filter:none}
   .route { stroke:#5d8ba8;stroke-opacity:.34;stroke-width:1.2 }.route.hostile { stroke:#fa6b62;stroke-dasharray:4 5 }
   .planned-route { fill:none;stroke:#ffd05c;stroke-width:2.2;stroke-dasharray:7 5;opacity:.95;filter:drop-shadow(0 0 4px rgba(255,208,92,.45)) }
   .system { color:var(--system-color);cursor:pointer;outline:none;transition:opacity .15s,filter .15s }.system.explored{opacity:.58;filter:saturate(.48) blur(.22px)}
@@ -347,7 +496,7 @@
   .star { fill:#fff;stroke:var(--system-color);stroke-width:2;filter:url(#glow) }.star.colonized{stroke-width:3}
   .sensor-orbit{fill:none;stroke:var(--system-color);stroke-width:1;opacity:.58;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--system-color) 35%,transparent))}.sensor-orbit-2{stroke-dasharray:5 3;opacity:.47}.sensor-orbit-3{stroke-dasharray:2 4;opacity:.38}.ownership-orbit { fill:none;stroke:var(--system-color);stroke-width:2.4;opacity:.9 }.ownership-orbit.unclaimed{stroke:#dcecff;stroke-width:1.5;stroke-dasharray:3 3;opacity:.7}
   .system-label { fill:#b9cbd8;font-size:10px;letter-spacing:.9px;paint-order:stroke;stroke:#02070e;stroke-width:3px;stroke-linejoin:round }.system.explored .system-label{fill:#758b99}
-  .system-status{fill:var(--system-color);font-size:6.7px;font-weight:700;letter-spacing:.65px;paint-order:stroke;stroke:#02070e;stroke-width:2.5px;stroke-linejoin:round}.last-seen{fill:#708393;font-size:5.4px;letter-spacing:.45px;paint-order:stroke;stroke:#02070e;stroke-width:2px;stroke-linejoin:round}
+  .system-status{fill:var(--system-color);font-size:6.7px;font-weight:700;letter-spacing:.65px;paint-order:stroke;stroke:#02070e;stroke-width:2.5px;stroke-linejoin:round}.last-seen,.selection-intel{fill:#708393;font-size:5.4px;letter-spacing:.45px;paint-order:stroke;stroke:#02070e;stroke-width:2px;stroke-linejoin:round}.selection-intel{fill:#8de2ff;font-weight:700}.selection-intel.stale{fill:#a2adb5}
   .selected .system-label { fill:#edfaff;font-weight:700 }
   .selection-ring { fill:none;stroke:#ffd05c;stroke-width:1.8;opacity:.95 }.selection-ring.middle{stroke-dasharray:5 4}.selection-ring.outer{opacity:.42}.selection-ring.pulse{animation:pulse 2s infinite}
   .destination-ring{fill:rgba(255,208,92,.05);stroke:#ffd05c;stroke-width:2;stroke-dasharray:4 3;filter:drop-shadow(0 0 6px rgba(255,208,92,.5));animation:destinationPulse 1.4s ease-in-out infinite}
@@ -360,7 +509,7 @@
   .map-controls button:hover { background:rgba(12,55,83,.95);border-color:#48c8ff }
   .minimap { position:absolute;left:14px;bottom:14px;width:180px;height:90px;border:1px solid rgba(69,178,232,.42);background:rgba(1,8,15,.9);padding:5px }
   .minimap svg { display:block;width:100%;height:100%;cursor:default }.minimap .mini { stroke-width:.5;fill-opacity:.12 }.minimap .player { fill:#35c0ff;stroke:#35c0ff }.minimap .crimson { fill:#ff5f58;stroke:#ff5f58 }.minimap .violet { fill:#c864ef;stroke:#c864ef }.minimap .amber { fill:#f0ae39;stroke:#f0ae39 }.minimap .viewport { fill:none;stroke:#fff;stroke-width:1;opacity:.7 }
-  .mini-territory{fill:var(--mini-color);fill-opacity:.16;stroke:var(--mini-color);stroke-width:.25;filter:url(#miniTerritoryBlur)}.mini-territory.memory{fill-opacity:.07;stroke-opacity:.35}.mini-territory-link{stroke:var(--mini-color);stroke-width:8;stroke-linecap:round;stroke-opacity:.08;filter:url(#miniTerritoryBlur)}.mini-territory-link.memory{stroke-opacity:.035}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
+  .mini-territory-fill{fill:var(--mini-color);fill-opacity:.09;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.035}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:5;stroke-linejoin:round;stroke-opacity:.7}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
   .map-legend { position:absolute;top:12px;left:14px;max-width:calc(100% - 28px);display:flex;align-items:center;gap:.85rem;padding:.5rem .7rem;background:rgba(2,10,18,.86);border:1px solid rgba(65,159,210,.22);color:#7893a5;font-size:.68rem;overflow-x:auto;white-space:nowrap }
   .map-legend span::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.35rem }.friendly::before { background:#43c9ff;box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d;box-shadow:0 0 8px #ff645d }
   .legend-entry{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-hint{margin-left:.25rem;color:#5f798b}.legend-hint::before{display:none!important}.legend-hint b{color:#8eabba;font-weight:500}
