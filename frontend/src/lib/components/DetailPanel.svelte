@@ -1,14 +1,16 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountTurnStatusPlayer, FleetSummary, StarSystem } from '../types';
+  import type { AccountTurnStatusPlayer, FleetSummary, ProductionOrder, StarSystem } from '../types';
 
   export let system: StarSystem;
   export let players: AccountTurnStatusPlayer[] = [];
   export let currentPlayerId = 0;
   export let selectedFleetId = '';
   export let canBuild = false;
+  export let productionOrders: ProductionOrder[] = [];
   export let onBuild: (item: string) => void;
+  export let onRemoveBuild: (item: string) => void = () => {};
   export let onSelectFleet: (fleet: FleetSummary) => void = () => {};
   export let onWaypointFleet: (fleet: FleetSummary) => void = () => {};
 
@@ -61,18 +63,19 @@
   </section>
 
   <section class="panel-section">
-    <h3>Production queue</h3>
-    {#if system.production.length}
+    <div class="production-heading"><h3>Build queue · this turn</h3><span>{productionOrders.reduce((sum, order) => sum + order.quantity, 0)} queued</span></div>
+    {#if productionOrders.length}
       <div class="queue">
-        {#each system.production as item}
-          <div class="queue-item">
-            <Icon name={item.kind === 'ship' ? 'fleet' : item.kind === 'defense' ? 'shield' : 'industry'} size={17}/>
-            <span><strong>{item.label}</strong><i><b style={`width:${item.progress}%`}></b></i></span><em>{item.quantity}</em>
+        {#each productionOrders as item}
+          <div class="queue-item draft">
+            <Icon name={item.item === 'Scout Wing' ? 'fleet' : item.item === 'Defense Grid' ? 'shield' : 'industry'} size={17}/>
+            <span><strong>{item.item}</strong><small>Completes when the turn is processed</small></span><em>×{item.quantity}</em>
+            <button disabled={!canBuild} title={`Remove one ${item.item}`} onclick={() => onRemoveBuild(item.item)}>−1</button>
           </div>
         {/each}
       </div>
     {:else}
-      <p class="empty">No active production.</p>
+      <p class="empty idle-production">This system is not building anything this turn.</p>
     {/if}
     <div class="build-options">
       <button disabled={!canBuild} onclick={() => onBuild('Scout Wing')}><Icon name="fleet" size={15}/><span><strong>Scout Wing</strong><small>300 industry · 40 ships</small></span></button>
@@ -124,7 +127,7 @@
   .world-art{height:146px;position:relative;overflow:hidden;background:radial-gradient(circle at 72% 28%,hsla(var(--world-hue),75%,72%,.6) 0 4%,transparent 18%),linear-gradient(180deg,hsl(var(--world-hue),55%,31%),hsl(var(--world-hue),55%,10%) 70%);border-bottom:1px solid rgba(62,164,218,.22)}.world-art::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 28% 20%,rgba(255,255,255,.7) 0 .6px,transparent .9px),radial-gradient(circle at 58% 33%,rgba(255,255,255,.6) 0 .5px,transparent .8px);background-size:39px 31px,53px 47px;opacity:.6}.world-art.neutral{filter:saturate(.35)}.moon{position:absolute;width:72px;height:72px;border-radius:50%;right:35px;top:14px;background:radial-gradient(circle at 35% 30%,#dbe5ea,#708493 50%,#21303b 75%);box-shadow:0 0 18px hsla(var(--world-hue),80%,70%,.35)}.horizon{position:absolute;left:-10%;right:-10%;height:72px;bottom:-38px;border-radius:50% 50% 0 0;background:linear-gradient(180deg,hsl(var(--world-hue),42%,32%),#071019);box-shadow:0 -4px 20px hsla(var(--world-hue),70%,60%,.35)}.city{position:absolute;bottom:26px;left:28px;right:100px;display:flex;gap:9px;align-items:end}.city i{width:14px;height:38px;background:linear-gradient(90deg,#102b3c,#32637a,#0b1f2e);clip-path:polygon(35% 0,65% 0,75% 25%,100% 30%,100% 100%,0 100%,0 30%,25% 25%);box-shadow:0 0 8px hsla(var(--world-hue),90%,65%,.4)}.city i:nth-child(2){height:72px}.city i:nth-child(3){height:52px}.city i:nth-child(4){height:82px}.city i:nth-child(5){height:45px}.world-art>span{position:absolute;left:10px;bottom:8px;font-size:.65rem;color:#d5efff;text-transform:uppercase;letter-spacing:.12em}
   .summary-grid{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid rgba(62,164,218,.2)}.summary-grid>div{min-height:54px;display:flex;align-items:center;gap:.6rem;padding:0 .8rem;border-right:1px solid rgba(62,164,218,.16);color:#75cfff}.summary-grid small,.summary-grid strong{display:block}.summary-grid small{color:#7991a2;font-size:.65rem}.summary-grid strong{color:#dcebf4;font-size:.8rem;margin-top:.1rem}.happy{color:#8cdd60;font-size:1.45rem}
   .panel-section{padding:.8rem 1rem;border-bottom:1px solid rgba(62,164,218,.18)}.panel-section h3{margin:0 0 .65rem;color:#49c5ff;text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}.resources{display:flex;justify-content:space-between;gap:.4rem}.resources div{display:flex;align-items:center;gap:.35rem;color:#74d0fb}.resources div span{display:block}.resources strong,.resources small{display:block}.resources strong{color:#dae9f2;font-size:.72rem}.resources small{margin-top:.05rem;color:#6da6c2;font-size:.56rem}
-  .queue{display:grid;gap:.55rem}.queue-item{display:grid;grid-template-columns:20px 1fr 20px;gap:.45rem;align-items:center;color:#5fcaff}.queue-item span strong{display:block;color:#bcd0dc;font-size:.72rem;font-weight:500}.queue-item span i{display:block;height:3px;background:#152b39;margin-top:.3rem}.queue-item span b{display:block;height:100%;background:#42ccff;box-shadow:0 0 8px rgba(66,204,255,.4)}.queue-item em{color:#dcecf5;font-style:normal;font-size:.72rem;text-align:right}
+  .production-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.production-heading h3{margin-bottom:.65rem}.production-heading span{margin-bottom:.65rem;color:#6d899b;font-size:.55rem;text-transform:uppercase;letter-spacing:.06em}.queue{display:grid;gap:.45rem}.queue-item{display:grid;grid-template-columns:20px minmax(0,1fr) 28px 30px;gap:.45rem;align-items:center;color:#5fcaff}.queue-item span strong,.queue-item span small{display:block}.queue-item span strong{color:#bcd0dc;font-size:.68rem;font-weight:500}.queue-item span small{margin-top:.12rem;color:#657f90;font-size:.53rem}.queue-item em{color:#e3c466;font-style:normal;font-size:.68rem;text-align:right}.queue-item button{height:27px;border:1px solid rgba(196,104,78,.3);background:rgba(67,24,18,.45);color:#e2a18d;font:inherit;font-size:.58rem;cursor:pointer}.queue-item button:disabled{opacity:.35;cursor:not-allowed}.idle-production{color:#b59b61}
   .build-options{display:grid;gap:.38rem;margin-top:.65rem}.build-options button{min-height:42px;display:grid;grid-template-columns:20px 1fr;gap:.45rem;align-items:center;padding:.4rem .55rem;border:1px solid rgba(61,160,209,.25);background:rgba(5,27,42,.72);color:#58caff;text-align:left;cursor:pointer}.build-options button:hover:not(:disabled){border-color:#48caff;background:rgba(10,49,72,.86)}.build-options button:disabled{opacity:.35;cursor:not-allowed}.build-options span,.build-options strong,.build-options small{display:block}.build-options strong{color:#c7dbe6;font-size:.67rem;font-weight:500}.build-options small{margin-top:.12rem;color:#69899d;font-size:.56rem}.build-hint{margin:.5rem 0 0;color:#71899b;font-size:.62rem;line-height:1.4}
   .split-title{display:grid;grid-template-columns:1fr auto}.split-title h3{grid-column:1}.split-title>span{grid-column:2;color:#dcebf3;font-size:.75rem}.defense-row{grid-column:1/-1;display:flex;gap:.7rem;align-items:center;color:#8dcdf0}.defense-row div{display:flex;gap:5px}.defense-row i{width:19px;height:12px;border:1px solid #568eb0;background:linear-gradient(180deg,#2d6689,#102334);clip-path:polygon(40% 0,60% 0,70% 35%,100% 50%,85% 100%,15% 100%,0 50%,30% 35%)}
   .fleets-section{padding-left:.75rem;padding-right:.75rem;background:linear-gradient(180deg,rgba(8,31,47,.4),rgba(3,14,24,.1))}.section-heading{display:flex;align-items:center;justify-content:space-between;padding:0 .25rem}.section-heading h3{margin-bottom:.5rem}.section-heading span{min-width:22px;padding:.12rem .35rem;border:1px solid rgba(76,195,244,.25);color:#67d1fb;text-align:center;font-size:.58rem}.fleet-list{display:grid;gap:.45rem}.fleet-card{border:1px solid rgba(66,156,202,.26);border-left:3px solid var(--fleet-color);background:rgba(4,20,32,.82);transition:.15s}.fleet-card.selected{border-color:#ffd05c;border-left-color:#ffd05c;box-shadow:inset 0 0 14px rgba(255,208,92,.06)}.fleet-card.opponent{opacity:.82}.fleet-main{width:100%;min-height:61px;display:grid;grid-template-columns:30px minmax(0,1fr) 52px;gap:.45rem;align-items:center;padding:.45rem .5rem;border:0;background:transparent;color:inherit;text-align:left}.fleet-main:not(:disabled){cursor:pointer}.fleet-main:disabled{cursor:default}.fleet-icon{width:28px;height:28px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--fleet-color) 55%,transparent);color:var(--fleet-color);background:color-mix(in srgb,var(--fleet-color) 8%,transparent)}.fleet-copy,.fleet-copy strong,.fleet-copy small,.ships strong,.ships small{display:block;min-width:0}.fleet-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8e9f2;font-size:.72rem;font-weight:600}.fleet-copy small{margin-top:.14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#718fa1;font-size:.57rem}.fleet-copy .destination{color:#7fd7ff}.fleet-copy .colony{color:#d6b25a;text-transform:uppercase;letter-spacing:.04em}.ships{text-align:right}.ships strong{color:#f1f8fb;font-size:.75rem}.ships small{margin-top:.1rem;color:#678496;font-size:.52rem;text-transform:uppercase}.route-action{width:100%;min-height:31px;display:flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-top:1px solid rgba(65,147,189,.18);background:rgba(7,36,53,.72);color:#58caff;font:inherit;font-size:.61rem;cursor:pointer}.route-action:hover{background:rgba(12,57,81,.9);color:#dff7ff}

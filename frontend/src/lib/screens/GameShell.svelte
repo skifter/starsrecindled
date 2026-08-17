@@ -5,6 +5,7 @@
   import Logo from '../components/Logo.svelte';
   import PlayersView from './PlayersView.svelte';
   import FleetsView from './FleetsView.svelte';
+  import PlanetsView from './PlanetsView.svelte';
   import SectionViews from '../components/SectionViews.svelte';
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
@@ -26,10 +27,10 @@
   export let onExit: () => void;
 
   const navigation: { id: GameSection; label: string; icon: string }[] = [
-    { id: 'players', label: 'Players', icon: 'user' },
     { id: 'galaxy', label: 'Galaxy', icon: 'galaxy' },
     { id: 'planets', label: 'Planets', icon: 'planet' },
     { id: 'fleets', label: 'Fleets', icon: 'fleet' },
+    { id: 'players', label: 'Players', icon: 'user' },
     { id: 'research', label: 'Research', icon: 'research' },
     { id: 'diplomacy', label: 'Diplomacy', icon: 'diplomacy' },
     { id: 'report', label: 'Turn report', icon: 'report' }
@@ -42,7 +43,13 @@
     { icon: 'energy', value: '2.3K', income: '+67' }
   ];
 
-  let activeSection: GameSection = 'players';
+  const PRODUCTION_COSTS: Record<string, number> = {
+    'Scout Wing': 300,
+    'Defense Grid': 250,
+    'Orbital Factory': 400
+  };
+
+  let activeSection: GameSection = 'galaxy';
   let selectedSystem: StarSystem | null = demoSystems[0] ?? null;
   let selectedFleet: FleetSummary | null = null;
   let planningFleet: FleetSummary | null = null;
@@ -164,33 +171,95 @@
     return false;
   }
 
-  function addProduction(item: string): void {
-    if (!selectedSystem) return;
+  function productionCost(item: string): number {
+    return PRODUCTION_COSTS[item] ?? 0;
+  }
 
+  function projectedIndustry(system: StarSystem): number {
+    const industry = system.resources.find((resource) => resource.id === 'industry');
+    return industry ? industry.value + industry.income : 0;
+  }
+
+  function reservedIndustry(systemId: string): number {
+    return (orders.production ?? [])
+      .filter((order) => order.systemId === systemId)
+      .reduce((sum, order) => sum + productionCost(order.item) * Math.max(1, order.quantity), 0);
+  }
+
+  function addProductionForSystem(system: StarSystem, item: string): void {
     if (!demoMode) {
       if (!editableTurn) {
         localNotice = 'Reopen the turn before changing production orders.';
         return;
       }
-      if (selectedSystem.ownerPlayerId !== connection.playerId) {
+      if (system.ownerPlayerId !== connection.playerId) {
         localNotice = 'Production can only be ordered in one of your colonies.';
+        return;
+      }
+
+      const cost = productionCost(item);
+      const remaining = projectedIndustry(system) - reservedIndustry(system.id);
+      if (cost > 0 && remaining < cost) {
+        localNotice = `${system.name} needs ${cost.toLocaleString('en-US')} industry for ${item}; ${Math.max(0, remaining).toLocaleString('en-US')} remains after queued builds.`;
         return;
       }
     }
 
     const existing = (orders.production ?? []).find(
-      (order) => order.systemId === selectedSystem?.id && order.item === item
+      (order) => order.systemId === system.id && order.item === item
     );
     const nextProduction = existing
       ? (orders.production ?? []).map((order) =>
           order === existing ? { ...order, quantity: order.quantity + 1 } : order
         )
-      : [...(orders.production ?? []), { systemId: selectedSystem.id, item, quantity: 1 }];
+      : [...(orders.production ?? []), { systemId: system.id, item, quantity: 1 }];
 
     updateOrders(
       { ...orders, production: nextProduction },
-      `${item} queued at ${selectedSystem.name}.`
+      `${item} queued at ${system.name}.`
     );
+  }
+
+  function addProduction(item: string): void {
+    const system = selectedSystem;
+    if (!system) return;
+    addProductionForSystem(system, item);
+  }
+
+  function removeProduction(systemId: string, item: string): void {
+    if (!editableTurn && !demoMode) {
+      localNotice = 'Reopen the turn before changing production orders.';
+      return;
+    }
+
+    let removed = false;
+    const nextProduction = (orders.production ?? []).flatMap((order) => {
+      if (!removed && order.systemId === systemId && order.item === item) {
+        removed = true;
+        return order.quantity > 1 ? [{ ...order, quantity: order.quantity - 1 }] : [];
+      }
+      return [order];
+    });
+
+    if (!removed) return;
+    const systemName = gameSystems.find((system) => system.id === systemId)?.name ?? systemId;
+    updateOrders({ ...orders, production: nextProduction }, `${item} removed from ${systemName}.`);
+  }
+
+  function removeProductionFromSelected(item: string): void {
+    const system = selectedSystem;
+    if (!system) return;
+    removeProduction(system.id, item);
+  }
+
+  function openPlanet(system: StarSystem): void {
+    planningFleet = null;
+    selectedSystem = system;
+    selectedFleet = null;
+    activeSection = 'galaxy';
+    rightPanelOpen = true;
+    sidebarOpen = false;
+    localNotice = `${system.name} selected.`;
   }
 
   function selectFleet(fleet: FleetSummary, system: StarSystem, openGalaxy = false): void {
@@ -331,7 +400,7 @@
     <button class="top-icon" aria-label="Exit to menu" onclick={onExit}><Icon name="power" /></button>
   </header>
 
-  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'fleets'}>
+  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets'}>
     <nav class="sidebar" class:open={sidebarOpen}>
       {#each navigation as item}
         <button class:active={activeSection === item.id} onclick={() => { activeSection = item.id; sidebarOpen = false; }}><Icon name={item.icon} size={25}/><span>{item.label}</span></button>
@@ -359,6 +428,16 @@
           onSelect={selectSystem}
           onSelectFleet={(fleet, system) => beginWaypointForFleet(fleet, system)}
         />
+      {:else if activeSection === 'planets' && !demoMode}
+        <PlanetsView
+          systems={gameSystems}
+          currentPlayerId={connection.playerId}
+          {orders}
+          {editableTurn}
+          onLocate={openPlanet}
+          onQueueBuild={addProductionForSystem}
+          onRemoveBuild={removeProduction}
+        />
       {:else if activeSection === 'fleets' && !demoMode}
         <FleetsView
           systems={gameSystems}
@@ -382,7 +461,7 @@
       {/if}
     </main>
 
-    {#if activeSection !== 'players' && activeSection !== 'fleets' && selectedSystem}
+    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && selectedSystem}
       <div class="right-wrap" class:open={rightPanelOpen}>
         <button class="panel-toggle" aria-label="Toggle detail panel" onclick={() => (rightPanelOpen = !rightPanelOpen)}><Icon name={rightPanelOpen ? 'chevron-right' : 'chevron-left'} size={17}/></button>
         <DetailPanel
@@ -391,6 +470,8 @@
           currentPlayerId={connection.playerId}
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)}
+          productionOrders={(orders.production ?? []).filter((order) => order.systemId === selectedSystem?.id)}
+          onRemoveBuild={removeProductionFromSelected}
           onBuild={addProduction}
           onSelectFleet={selectFleetFromDetail}
           onWaypointFleet={beginWaypointFromDetail}
