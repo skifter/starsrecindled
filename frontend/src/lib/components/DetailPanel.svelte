@@ -2,13 +2,14 @@
   import Icon from './Icon.svelte';
   import PlanetSensorVisual from './PlanetSensorVisual.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountTurnStatusPlayer, FleetSummary, ProductionOrder, StarSystem } from '../types';
+  import type { AccountTurnStatusPlayer, FleetSummary, ProductionOrder, ResearchModifiers, StarSystem } from '../types';
 
   export let system: StarSystem;
   export let players: AccountTurnStatusPlayer[] = [];
   export let currentPlayerId = 0;
   export let selectedFleetId = '';
   export let canBuild = false;
+  export let researchModifiers: ResearchModifiers | null = null;
   export let productionOrders: ProductionOrder[] = [];
   export let onBuild: (item: string) => void;
   export let onRemoveBuild: (item: string) => void = () => {};
@@ -26,6 +27,9 @@
   $: sensorRange = system.ownerPlayerId === null ? 0 : Math.max(1, Math.min(3, Math.round(system.sensorRange ?? 1)));
   $: queuedSensorUpgrades = productionOrders.filter((order) => order.item === 'Deep Space Array').reduce((sum, order) => sum + Math.max(1, order.quantity), 0);
   $: projectedSensorRange = Math.min(3, sensorRange + queuedSensorUpgrades);
+  $: effectiveSensorRange = Math.min(5, sensorRange + (isYours ? Math.max(0, researchModifiers?.colonySensorBonus ?? 0) : 0));
+  $: defenseGridAmount = Math.max(250, researchModifiers?.defenseGridAmount ?? 250);
+  $: industryBonusPercent = Math.max(0, researchModifiers?.industryIncomePercent ?? 0);
 
   function fleetColor(fleet: FleetSummary): string {
     return fleet.ownerPlayerId ? OWNER_COLORS[ownerForPlayerId(fleet.ownerPlayerId, playerIds)] : OWNER_COLORS.neutral;
@@ -58,14 +62,14 @@
   </div>
 
   <div class="world-art" class:neutral={system.ownerPlayerId === null} style={`--world-hue:${system.owner === 'player' ? '198' : system.owner === 'crimson' ? '8' : system.owner === 'violet' ? '280' : '42'}`}>
-    <div class="sensor-world"><PlanetSensorVisual color={systemColor} {sensorRange} size={116} neutral={system.ownerPlayerId === null} label={system.name}/></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sensor-world"><PlanetSensorVisual color={systemColor} sensorRange={effectiveSensorRange} size={116} neutral={system.ownerPlayerId === null} label={system.name}/></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
     <span>{system.ownerLabel ?? ownerName[system.owner]}</span>
   </div>
 
   <div class="summary-grid">
     <div><Icon name="user" size={19}/><span><small>Population</small><strong>{system.population.toFixed(1)} / {system.capacity.toFixed(1)}B</strong></span></div>
     <div><span class="happy">☺</span><span><small>Happiness</small><strong>{system.happiness}%</strong></span></div>
-    <div><Icon name="target" size={19}/><span><small>Sensor range</small><strong>{sensorRange} hop{sensorRange === 1 ? '' : 's'}{projectedSensorRange > sensorRange ? ` → ${projectedSensorRange}` : ''}</strong></span></div>
+    <div><Icon name="target" size={19}/><span><small>Sensor range</small><strong>{effectiveSensorRange} hop{effectiveSensorRange === 1 ? '' : 's'}{isYours && (researchModifiers?.colonySensorBonus ?? 0) > 0 ? ` · tech +${researchModifiers?.colonySensorBonus}` : projectedSensorRange > sensorRange ? ` → ${projectedSensorRange}` : ''}</strong></span></div>
   </div>
 
   <section class="panel-section">
@@ -74,7 +78,7 @@
       {#each system.resources as resource}
         <div title={resource.label}>
           <Icon name={resource.icon} size={17}/>
-          <span><strong>{resource.value.toLocaleString('en-US')}</strong><small>+{resource.income}</small></span>
+          <span><strong>{resource.value.toLocaleString('en-US')}</strong><small>+{resource.id === 'industry' && isYours ? resource.income + Math.floor(resource.income * industryBonusPercent / 100) : resource.income}{resource.id === 'industry' && isYours && industryBonusPercent > 0 ? ` (${industryBonusPercent}% tech)` : ''}</small></span>
         </div>
       {/each}
     </div>
@@ -97,7 +101,7 @@
     {/if}
     <div class="build-options">
       <button disabled={!canBuild} onclick={() => onBuild('Scout Wing')}><Icon name="fleet" size={15}/><span><strong>Scout Wing</strong><small>300 industry · 40 ships</small></span></button>
-      <button disabled={!canBuild} onclick={() => onBuild('Defense Grid')}><Icon name="shield" size={15}/><span><strong>Defense Grid</strong><small>250 industry · +250 defenses</small></span></button>
+      <button disabled={!canBuild} onclick={() => onBuild('Defense Grid')}><Icon name="shield" size={15}/><span><strong>Defense Grid</strong><small>250 industry · +{defenseGridAmount} defenses</small></span></button>
       <button disabled={!canBuild} onclick={() => onBuild('Orbital Factory')}><Icon name="industry" size={15}/><span><strong>Orbital Factory</strong><small>400 industry · +8 industry/turn</small></span></button>
       <button disabled={!canBuild || projectedSensorRange >= 3} onclick={() => onBuild('Deep Space Array')}><Icon name="target" size={15}/><span><strong>Deep Space Array</strong><small>{projectedSensorRange >= 3 ? 'Maximum sensor range reached/queued' : '350 industry · +1 sensor hop'}</small></span></button>
     </div>

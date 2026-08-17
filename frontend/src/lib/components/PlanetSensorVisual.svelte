@@ -5,7 +5,7 @@
   export let neutral = false;
   export let label = 'Planet';
 
-  $: range = Math.max(0, Math.min(3, Math.round(sensorRange)));
+  $: range = Math.max(0, Math.min(5, Math.round(sensorRange)));
 </script>
 
 <div
@@ -15,6 +15,8 @@
   role="img"
   aria-label={`${label}; sensor range ${range}`}
 >
+  {#if range >= 5}<span class="orbit orbit-5"></span>{/if}
+  {#if range >= 4}<span class="orbit orbit-4"></span>{/if}
   {#if range >= 3}<span class="orbit orbit-3"></span>{/if}
   {#if range >= 2}<span class="orbit orbit-2"></span>{/if}
   {#if range >= 1}<span class="orbit orbit-1"></span>{/if}
@@ -29,7 +31,9 @@
   .orbit{position:absolute;z-index:1;border:1px solid var(--sensor-color);border-radius:48% 52% 46% 54%;opacity:.8;box-shadow:0 0 6px color-mix(in srgb,var(--sensor-color) 24%,transparent)}
   .orbit-1{width:58%;height:36%;transform:rotate(-18deg)}
   .orbit-2{width:76%;height:49%;transform:rotate(31deg);opacity:.62}
-  .orbit-3{width:94%;height:61%;transform:rotate(-51deg);opacity:.46;border-style:dashed}
+  .orbit-3{width:78%;height:52%;transform:rotate(-51deg);opacity:.52;border-style:dashed}
+  .orbit-4{width:91%;height:61%;transform:rotate(14deg);opacity:.4;border-style:dashed}
+  .orbit-5{width:100%;height:70%;transform:rotate(-34deg);opacity:.3;border-style:dotted}
   b{position:absolute;z-index:4;right:0;bottom:0;min-width:14px;height:14px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--sensor-color) 65%,transparent);background:#06131f;color:var(--sensor-color);font-size:8px;font-weight:600;line-height:1}
   .neutral{--sensor-color:#8aa0ad!important;filter:saturate(.3)}
 </style>

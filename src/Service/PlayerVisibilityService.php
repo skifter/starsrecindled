@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Service;
 
+use Bellcom\StarsTurnBundle\Domain\ResearchCatalog;
+
 final readonly class PlayerVisibilityService
 {
     /**
@@ -136,8 +138,10 @@ final readonly class PlayerVisibilityService
         $universe['fleets'] = array_values($visibleFleets);
         $state['universe'] = $universe;
 
-        // Never expose server-side intelligence/history data if such fields are added later.
-        unset($state['intelligence']);
+        // Never expose server-side intelligence/history data or other players'
+        // private research state. Research for the authenticated player is returned
+        // separately by TurnApiController.
+        unset($state['intelligence'], $state['research']);
 
         $sensorIds = array_keys($coverage['sensorMap']);
         sort($sensorIds, SORT_STRING);
@@ -208,6 +212,8 @@ final readonly class PlayerVisibilityService
         $routes = $this->routes($state);
         $systems = $this->systems($state);
         $fleets = $this->fleets($state);
+        $researchState = ResearchCatalog::playerState($state, $playerId);
+        $researchSensorBonus = max(0, (int) ($researchState['modifiers']['colonySensorBonus'] ?? 0));
 
         /** @var array<string, list<string>> $adjacency */
         $adjacency = [];
@@ -268,7 +274,8 @@ final readonly class PlayerVisibilityService
             if ($systemId === '') {
                 continue;
             }
-            $range = max(1, min(3, (int) ($system['sensorRange'] ?? 1)));
+            $baseRange = max(1, min(3, (int) ($system['sensorRange'] ?? 1)));
+            $range = min(5, $baseRange + $researchSensorBonus);
             $colonySensorRanges[$systemId] = $range;
             $markWithinRange($systemId, $range);
         }

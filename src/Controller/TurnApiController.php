@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bellcom\StarsTurnBundle\Controller;
 
 use Bellcom\StarsTurnBundle\Application\TurnSubmissionService;
+use Bellcom\StarsTurnBundle\Domain\ResearchCatalog;
 use Bellcom\StarsTurnBundle\Repository\PlayerTurnRepository;
 use Bellcom\StarsTurnBundle\Repository\TurnRepository;
 use Bellcom\StarsTurnBundle\Security\PlayerTokenAuthenticator;
@@ -60,9 +61,12 @@ final class TurnApiController extends AbstractController
             throw new \LogicException('Den autentificerede spiller mangler id.');
         }
 
+        $initialState = $turn->getInitialState();
         $history = $this->visibilityHistory($gameId, $turnNumber);
-        $projection = $this->visibility->project($turn->getInitialState(), $playerId, $history, $turnNumber);
+        $projection = $this->visibility->project($initialState, $playerId, $history, $turnNumber);
         $previousReport = $this->previousPublishedReport($gameId, $turnNumber, $playerId);
+        $research = ResearchCatalog::playerState($initialState, $playerId);
+        $research['income'] = ResearchCatalog::estimateIncome($initialState, $playerId);
 
         return $this->json([
             'game' => [
@@ -86,6 +90,8 @@ final class TurnApiController extends AbstractController
                 'known_system_ids' => $projection['knownSystemIds'],
                 'unknown_system_count' => $projection['unknownSystemCount'],
             ],
+            'research' => $research,
+            'research_catalog' => ResearchCatalog::publicCatalog(),
             'previous_report' => $previousReport,
             'players' => $players,
             'you' => [
@@ -112,7 +118,11 @@ final class TurnApiController extends AbstractController
             if (!is_array($orders)) {
                 return $this->json(['error' => 'Feltet orders skal være et JSON-objekt.'], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
+            $playerId = $player->getId() ?? throw new \LogicException('Den autentificerede spiller mangler id.');
+            $orders = $this->validateResearchOrders($orders, $turn->getInitialState(), $playerId);
             $this->submissionService->saveDraft($player, $turn, $orders);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_UNPROCESSABLE_ENTITY);
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], Response::HTTP_CONFLICT);
         } catch (\JsonException) {
@@ -137,7 +147,11 @@ final class TurnApiController extends AbstractController
             if (!is_array($orders)) {
                 return $this->json(['error' => 'Feltet orders skal være et JSON-objekt.'], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
+            $playerId = $player->getId() ?? throw new \LogicException('Den autentificerede spiller mangler id.');
+            $orders = $this->validateResearchOrders($orders, $turn->getInitialState(), $playerId);
             $outcome = $this->submissionService->submit($player, $turn, $orders);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_UNPROCESSABLE_ENTITY);
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], Response::HTTP_CONFLICT);
         } catch (\JsonException) {
@@ -175,6 +189,58 @@ final class TurnApiController extends AbstractController
     {
         $orders['fleets'] = is_array($orders['fleets'] ?? null) ? array_values($orders['fleets']) : [];
         $orders['production'] = is_array($orders['production'] ?? null) ? array_values($orders['production']) : [];
+        $orders['research'] = is_array($orders['research'] ?? null) ? array_values($orders['research']) : [];
+
+        return $orders;
+    }
+
+    /**
+     * @param array<string,mixed> $orders
+     * @param array<string,mixed> $state
+     * @return array<string,mixed>
+     */
+    private function validateResearchOrders(array $orders, array $state, int $playerId): array
+    {
+        if (!array_key_exists('research', $orders) || $orders['research'] === null) {
+            $orders['research'] = [];
+            return $orders;
+        }
+        if (!is_array($orders['research'])) {
+            throw new \InvalidArgumentException('Research orders must be an array.');
+        }
+
+        $entries = array_values($orders['research']);
+        if (count($entries) > 1) {
+            throw new \InvalidArgumentException('Only one active research technology can be selected per turn.');
+        }
+        if ($entries === []) {
+            $orders['research'] = [];
+            return $orders;
+        }
+
+        $selection = $entries[0];
+        if (!is_array($selection)) {
+            throw new \InvalidArgumentException('The research selection must be a JSON object.');
+        }
+        $technologyId = is_string($selection['technologyId'] ?? null)
+            ? trim($selection['technologyId'])
+            : (is_string($selection['field'] ?? null) ? trim($selection['field']) : '');
+        if ($technologyId === '' || ResearchCatalog::technology($technologyId) === null) {
+            throw new \InvalidArgumentException('Unknown research technology.');
+        }
+
+        $playerResearch = ResearchCatalog::playerState($state, $playerId);
+        if (!ResearchCatalog::canResearch($playerResearch, $technologyId)) {
+            throw new \InvalidArgumentException(sprintf('Research technology %s is completed or its prerequisites are not met.', $technologyId));
+        }
+
+        // Canonical format. Keep the legacy field/allocation values for older clients
+        // while technologyId is the authoritative 0.7+ key.
+        $orders['research'] = [[
+            'technologyId' => $technologyId,
+            'field' => $technologyId,
+            'allocation' => 100,
+        ]];
 
         return $orders;
     }

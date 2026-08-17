@@ -31,6 +31,9 @@ final class DemoTurnEngine implements TurnEngineInterface
         $fleets = is_array($nextState['universe']['fleets'] ?? null)
             ? $nextState['universe']['fleets']
             : [];
+        $researchByPlayer = is_array($nextState['research'] ?? null)
+            ? $nextState['research']
+            : [];
 
         $systemIds = [];
         $startingOwners = [];
@@ -44,20 +47,27 @@ final class DemoTurnEngine implements TurnEngineInterface
             }
         }
 
-        // Colonies receive their resource income once per generated turn. Resource
-        // value acts as the current stockpile, while income is the per-turn amount.
+        // Colonies receive their resource income once per generated turn. Industry
+        // research increases the credited amount without permanently mutating the
+        // base income value shown on the colony.
         foreach ($systems as $index => $system) {
             if (!is_array($system) || ($system['ownerPlayerId'] ?? null) === null) {
                 continue;
             }
 
+            $ownerPlayerId = (int) $system['ownerPlayerId'];
+            $researchState = ResearchCatalog::playerState(['research' => $researchByPlayer], $ownerPlayerId);
+            $industryBonusPercent = (int) ($researchState['modifiers']['industryIncomePercent'] ?? 0);
             $resources = is_array($system['resources'] ?? null) ? $system['resources'] : [];
             foreach ($resources as $resourceIndex => $resource) {
                 if (!is_array($resource)) {
                     continue;
                 }
-                $resources[$resourceIndex]['value'] = max(0, (int) ($resource['value'] ?? 0))
-                    + max(0, (int) ($resource['income'] ?? 0));
+                $income = max(0, (int) ($resource['income'] ?? 0));
+                if (($resource['id'] ?? null) === 'industry' && $industryBonusPercent > 0) {
+                    $income += (int) floor($income * $industryBonusPercent / 100);
+                }
+                $resources[$resourceIndex]['value'] = max(0, (int) ($resource['value'] ?? 0)) + $income;
             }
             $systems[$index]['resources'] = array_values($resources);
         }
@@ -67,8 +77,14 @@ final class DemoTurnEngine implements TurnEngineInterface
             $movements = [];
             $colonizations = [];
             $productions = [];
+            $researchCompleted = [];
+            $researchProgress = null;
             $warnings = [];
             $movedFleetIds = [];
+            $playerIdInt = (int) $playerId;
+            $playerResearch = ResearchCatalog::playerState(['research' => $researchByPlayer], $playerIdInt);
+            $researchIncome = ResearchCatalog::estimateIncome($state, $playerIdInt);
+            $movementRange = max(1, (int) ($playerResearch['modifiers']['fleetMovementRange'] ?? 1));
             $fleetOrders = is_array($orders['fleets'] ?? null) ? $orders['fleets'] : [];
 
             // Movement is resolved before colonization. A fleet that moved this turn
@@ -105,8 +121,14 @@ final class DemoTurnEngine implements TurnEngineInterface
                 if ($fromSystemId === $targetSystemId) {
                     continue;
                 }
-                if (!$this->systemsAreConnected($routes, $fromSystemId, $targetSystemId)) {
-                    $warnings[] = sprintf('Ingen kendt rute forbinder %s og %s.', $fromSystemId, $targetSystemId);
+                $routeDistance = $this->systemDistance($routes, $fromSystemId, $targetSystemId, $movementRange);
+                if ($routeDistance === null || $routeDistance > $movementRange) {
+                    $warnings[] = sprintf(
+                        'Flåden %s kan højst flytte %d hop denne runde; %s er uden for rækkevidde.',
+                        $fleetId,
+                        $movementRange,
+                        $targetSystemId,
+                    );
                     continue;
                 }
 
@@ -252,7 +274,8 @@ final class DemoTurnEngine implements TurnEngineInterface
                             'colonizationCapacity' => 0,
                         ];
                     } elseif ($item === 'Defense Grid') {
-                        $systems[$systemIndex]['defenses'] = max(0, (int) ($systems[$systemIndex]['defenses'] ?? 0)) + 250;
+                        $defenseGridAmount = max(250, (int) ($playerResearch['modifiers']['defenseGridAmount'] ?? 250));
+                        $systems[$systemIndex]['defenses'] = max(0, (int) ($systems[$systemIndex]['defenses'] ?? 0)) + $defenseGridAmount;
                     } elseif ($item === 'Orbital Factory') {
                         $systems[$systemIndex]['development'] = min(100, max(0, (int) ($systems[$systemIndex]['development'] ?? 0)) + 10);
                         $systems[$systemIndex]['resources'][$industryIndex]['income'] = max(
@@ -278,6 +301,75 @@ final class DemoTurnEngine implements TurnEngineInterface
                 }
             }
 
+            // Research is persistent game state. Points generated by the player's
+            // colonies are added every turn and spent on one active technology.
+            // A new valid order changes the active technology; otherwise the previous
+            // selection continues automatically.
+            $playerResearch['income'] = $researchIncome;
+            $playerResearch['stockpile'] = max(0, (int) ($playerResearch['stockpile'] ?? 0)) + $researchIncome;
+
+            $researchOrders = is_array($orders['research'] ?? null) ? array_values($orders['research']) : [];
+            if ($researchOrders !== []) {
+                $selection = is_array($researchOrders[0]) ? $researchOrders[0] : [];
+                $technologyId = is_string($selection['technologyId'] ?? null)
+                    ? trim($selection['technologyId'])
+                    : (is_string($selection['field'] ?? null) ? trim($selection['field']) : '');
+
+                if ($technologyId === '' || !ResearchCatalog::canResearch($playerResearch, $technologyId)) {
+                    $warnings[] = sprintf('Forskningsvalget %s er ugyldigt eller låst.', $technologyId !== '' ? $technologyId : 'tomt valg');
+                } else {
+                    $playerResearch['activeTechnologyId'] = $technologyId;
+                }
+            }
+
+            $activeTechnologyId = is_string($playerResearch['activeTechnologyId'] ?? null)
+                ? $playerResearch['activeTechnologyId']
+                : null;
+            if ($activeTechnologyId !== null && ResearchCatalog::canResearch($playerResearch, $activeTechnologyId)) {
+                $definition = ResearchCatalog::technology($activeTechnologyId);
+                if ($definition !== null) {
+                    $cost = max(1, (int) $definition['cost']);
+                    $progressBefore = max(0, (int) ($playerResearch['progress'][$activeTechnologyId] ?? 0));
+                    $needed = max(0, $cost - $progressBefore);
+                    $spent = min(max(0, (int) $playerResearch['stockpile']), $needed);
+                    $progressAfter = min($cost, $progressBefore + $spent);
+                    $playerResearch['stockpile'] -= $spent;
+                    $playerResearch['progress'][$activeTechnologyId] = $progressAfter;
+
+                    if ($progressAfter >= $cost) {
+                        $completed = is_array($playerResearch['completed'] ?? null) ? $playerResearch['completed'] : [];
+                        if (!in_array($activeTechnologyId, $completed, true)) {
+                            $completed[] = $activeTechnologyId;
+                        }
+                        $playerResearch['completed'] = array_values($completed);
+                        $playerResearch['activeTechnologyId'] = null;
+                        $researchCompleted[] = [
+                            'technologyId' => $activeTechnologyId,
+                            'name' => (string) $definition['name'],
+                            'field' => (string) $definition['field'],
+                            'tier' => (int) $definition['tier'],
+                            'cost' => $cost,
+                            'effect' => (string) $definition['effect'],
+                        ];
+                    } else {
+                        $researchProgress = [
+                            'technologyId' => $activeTechnologyId,
+                            'name' => (string) $definition['name'],
+                            'field' => (string) $definition['field'],
+                            'progress' => $progressAfter,
+                            'cost' => $cost,
+                            'spent' => $spent,
+                            'income' => $researchIncome,
+                        ];
+                    }
+                }
+            }
+
+            // Re-normalize to recalculate levels/modifiers after a completion.
+            $playerResearch = ResearchCatalog::normalizeState($playerResearch);
+            $playerResearch['income'] = $researchIncome;
+            $researchByPlayer[(string) $playerId] = $playerResearch;
+
             $parts = [];
             if (count($movements) > 0) {
                 $parts[] = sprintf('%d flådebevægelse(r)', count($movements));
@@ -288,14 +380,21 @@ final class DemoTurnEngine implements TurnEngineInterface
             if (count($productions) > 0) {
                 $parts[] = sprintf('%d produktion(er)', count($productions));
             }
+            if (count($researchCompleted) > 0) {
+                $parts[] = sprintf('%d forskningsteknologi(er)', count($researchCompleted));
+            }
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen flådebevægelser, koloniseringer eller produktioner blev udført i denne runde.'
+                    ? 'Ingen flådebevægelser, koloniseringer, produktioner eller forskningsteknologier blev afsluttet i denne runde.'
                     : ucfirst(implode(', ', $parts)).' blev udført.',
                 'movements' => $movements,
                 'colonizations' => $colonizations,
                 'productions' => $productions,
+                'research_completed' => $researchCompleted,
+                'research_progress' => $researchProgress,
+                'research_income' => $researchIncome,
+                'research_stockpile' => (int) ($playerResearch['stockpile'] ?? 0),
                 'warnings' => $warnings,
                 'orders' => $orders,
             ];
@@ -303,6 +402,7 @@ final class DemoTurnEngine implements TurnEngineInterface
 
         $nextState['universe']['systems'] = array_values($systems);
         $nextState['universe']['fleets'] = array_values($fleets);
+        $nextState['research'] = $researchByPlayer;
 
         return new TurnGenerationResult($nextState, $reports);
     }
@@ -368,19 +468,51 @@ final class DemoTurnEngine implements TurnEngineInterface
     }
 
     /** @param list<mixed> $routes */
-    private function systemsAreConnected(array $routes, string $a, string $b): bool
+    private function systemDistance(array $routes, string $a, string $b, int $maxDistance): ?int
     {
+        if ($a === '' || $b === '') {
+            return null;
+        }
+        if ($a === $b) {
+            return 0;
+        }
+
+        $adjacency = [];
         foreach ($routes as $route) {
             if (!is_array($route)) {
                 continue;
             }
-            $from = $route['from'] ?? null;
-            $to = $route['to'] ?? null;
-            if (($from === $a && $to === $b) || ($from === $b && $to === $a)) {
-                return true;
+            $from = is_string($route['from'] ?? null) ? $route['from'] : '';
+            $to = is_string($route['to'] ?? null) ? $route['to'] : '';
+            if ($from === '' || $to === '') {
+                continue;
             }
+            $adjacency[$from][] = $to;
+            $adjacency[$to][] = $from;
         }
 
-        return false;
+        $visited = [$a => true];
+        $frontier = [$a];
+        for ($distance = 1; $distance <= max(1, $maxDistance); ++$distance) {
+            $next = [];
+            foreach ($frontier as $systemId) {
+                foreach ($adjacency[$systemId] ?? [] as $neighbourId) {
+                    if (isset($visited[$neighbourId])) {
+                        continue;
+                    }
+                    if ($neighbourId === $b) {
+                        return $distance;
+                    }
+                    $visited[$neighbourId] = true;
+                    $next[] = $neighbourId;
+                }
+            }
+            if ($next === []) {
+                break;
+            }
+            $frontier = $next;
+        }
+
+        return null;
     }
 }

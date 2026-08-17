@@ -146,8 +146,40 @@ export interface ProductionOrder {
 }
 
 export interface ResearchOrder {
-  field: string;
-  allocation: number;
+  technologyId?: string;
+  field?: string;
+  allocation?: number;
+}
+
+export type ResearchField = 'propulsion' | 'sensors' | 'weapons' | 'defenses' | 'industry';
+
+export interface ResearchTechnology {
+  id: string;
+  field: ResearchField;
+  tier: number;
+  name: string;
+  cost: number;
+  prerequisites: string[];
+  effect: string;
+}
+
+export interface ResearchModifiers {
+  fleetMovementRange: number;
+  colonySensorBonus: number;
+  fleetAttackPercent: number;
+  planetDefensePercent: number;
+  defenseGridAmount: number;
+  industryIncomePercent: number;
+}
+
+export interface PlayerResearchState {
+  stockpile: number;
+  income: number;
+  activeTechnologyId: string | null;
+  progress: Record<string, number>;
+  completed: string[];
+  levels: Record<ResearchField, number>;
+  modifiers: ResearchModifiers;
 }
 
 export interface PlayerOrders {
@@ -260,6 +292,24 @@ export interface TurnReportProduction {
   industryCost: number;
 }
 
+export interface TurnReportResearchCompleted {
+  technologyId: string;
+  name: string;
+  field: ResearchField;
+  tier: number;
+  cost: number;
+  effect: string;
+}
+
+export interface TurnReportResearchProgress {
+  technologyId: string;
+  name: string;
+  field: ResearchField;
+  progress: number;
+  cost: number;
+  spent: number;
+  income: number;
+}
 
 export interface TurnReportSighting {
   type: 'detected' | 'lost';
@@ -275,6 +325,10 @@ export interface TurnReportData {
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];
+  research_completed?: TurnReportResearchCompleted[];
+  research_progress?: TurnReportResearchProgress | null;
+  research_income?: number;
+  research_stockpile?: number;
   sightings?: TurnReportSighting[];
   warnings?: string[];
   orders?: PlayerOrders;
@@ -292,6 +346,8 @@ export interface AccountTurnStatus extends Record<string, unknown> {
   turn: AccountTurnStatusTurn;
   state?: ServerGameState;
   visibility?: AccountVisibility;
+  research?: PlayerResearchState;
+  research_catalog?: ResearchTechnology[];
   previous_report?: PreviousTurnReport | null;
   players: AccountTurnStatusPlayer[];
   you: AccountTurnStatusYou;

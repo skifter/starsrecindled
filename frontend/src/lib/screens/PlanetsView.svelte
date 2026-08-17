@@ -1,12 +1,13 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import PlanetSensorVisual from '../components/PlanetSensorVisual.svelte';
-  import type { PlayerOrders, ProductionOrder, StarSystem } from '../types';
+  import type { PlayerOrders, ProductionOrder, ResearchModifiers, StarSystem } from '../types';
 
   export let systems: StarSystem[] = [];
   export let currentPlayerId = 0;
   export let orders: PlayerOrders = { fleets: [], production: [] };
   export let editableTurn = false;
+  export let researchModifiers: ResearchModifiers | null = null;
   export let ownerColor = '#47c8ff';
   export let onLocate: (system: StarSystem) => void = () => {};
   export let onQueueBuild: (system: StarSystem, item: string) => void = () => {};
@@ -17,7 +18,7 @@
 
   const BUILD_OPTIONS = [
     { item: 'Scout Wing', cost: 300, icon: 'fleet', detail: '40 ships' },
-    { item: 'Defense Grid', cost: 250, icon: 'shield', detail: '+250 defenses' },
+    { item: 'Defense Grid', cost: 250, icon: 'shield', detail: 'defense-grid' },
     { item: 'Orbital Factory', cost: 400, icon: 'industry', detail: '+10 development · +8 industry/turn' },
     { item: 'Deep Space Array', cost: 350, icon: 'target', detail: '+1 colony sensor range · max 3 hops' }
   ];
@@ -32,7 +33,7 @@
     return filter === 'all' || (filter === 'building' ? building : !building);
   });
   $: totalPopulation = colonies.reduce((sum, system) => sum + system.population, 0);
-  $: totalIndustryIncome = colonies.reduce((sum, system) => sum + (resource(system, 'industry')?.income ?? 0), 0);
+  $: totalIndustryIncome = colonies.reduce((sum, system) => sum + effectiveIndustryIncome(system), 0);
 
   function queueFor(systemId: string): ProductionOrder[] {
     return (orders.production ?? []).filter((order) => order.systemId === systemId);
@@ -50,10 +51,22 @@
     return queueFor(systemId).reduce((sum, order) => sum + buildCost(order.item) * Math.max(1, order.quantity), 0);
   }
 
+  function effectiveIndustryIncome(system: StarSystem): number {
+    const industry = resource(system, 'industry');
+    if (!industry) return 0;
+    const bonus = Math.max(0, researchModifiers?.industryIncomePercent ?? 0);
+    return industry.income + Math.floor(industry.income * bonus / 100);
+  }
+
   function projectedIndustry(system: StarSystem): number {
     const industry = resource(system, 'industry');
     if (!industry) return 0;
-    return industry.value + industry.income;
+    return industry.value + effectiveIndustryIncome(system);
+  }
+
+  function buildDetail(item: string, fallback: string): string {
+    if (item === 'Defense Grid') return `+${researchModifiers?.defenseGridAmount ?? 250} defenses`;
+    return fallback;
   }
 
   function remainingIndustry(system: StarSystem): number {
@@ -72,6 +85,10 @@
 
   function projectedSensorRange(system: StarSystem): number {
     return Math.min(3, sensorRange(system) + queuedSensorUpgrades(system.id));
+  }
+
+  function effectiveSensorRange(system: StarSystem): number {
+    return Math.min(5, sensorRange(system) + Math.max(0, researchModifiers?.colonySensorBonus ?? 0));
   }
 
   function canQueue(system: StarSystem, item: string): boolean {
@@ -114,7 +131,7 @@
         <article class="planet-card panel-cut" class:building={queue.length > 0} class:idle={queue.length === 0}>
           <div class="planet-main">
             <button class="planet-title" onclick={() => onLocate(system)}>
-              <span class="planet-icon sensor-icon"><PlanetSensorVisual color={ownerColor} sensorRange={sensorRange(system)} size={48} label={system.name}/></span>
+              <span class="planet-icon sensor-icon"><PlanetSensorVisual color={ownerColor} sensorRange={effectiveSensorRange(system)} size={48} label={system.name}/></span>
               <span><strong>{system.name}</strong><small>{system.isCapital ? 'Capital' : system.className} · {system.population.toFixed(1)} / {system.capacity.toFixed(1)}B</small></span>
             </button>
             <div class="status" class:idle-status={queue.length === 0}>
@@ -127,9 +144,9 @@
             <div><small>Happiness</small><strong>{system.happiness}%</strong></div>
             <div><small>Development</small><strong>{system.development}%</strong></div>
             <div><small>Defenses</small><strong>{system.defenses.toLocaleString('en-US')}</strong></div>
-            <div><small>Industry</small><strong>{industry?.value.toLocaleString('en-US') ?? '0'}</strong><em>+{industry?.income ?? 0}</em></div>
+            <div><small>Industry</small><strong>{industry?.value.toLocaleString('en-US') ?? '0'}</strong><em>+{effectiveIndustryIncome(system)}{(researchModifiers?.industryIncomePercent ?? 0) > 0 ? ` · tech +${researchModifiers?.industryIncomePercent}%` : ''}</em></div>
             <div><small>Available after queue</small><strong>{remaining.toLocaleString('en-US')}</strong></div>
-            <div><small>Sensor range</small><strong>{sensorRange(system)} hop{sensorRange(system) === 1 ? '' : 's'}</strong><em>{projectedSensorRange(system) > sensorRange(system) ? `→ ${projectedSensorRange(system)} after turn` : sensorRange(system) >= 3 ? 'MAX' : 'Deep Space Array upgrades'}</em></div>
+            <div><small>Sensor range</small><strong>{effectiveSensorRange(system)} hop{effectiveSensorRange(system) === 1 ? '' : 's'}</strong><em>{(researchModifiers?.colonySensorBonus ?? 0) > 0 ? `${sensorRange(system)} equipment + ${researchModifiers?.colonySensorBonus} research` : projectedSensorRange(system) > sensorRange(system) ? `→ ${projectedSensorRange(system)} after turn` : sensorRange(system) >= 3 ? 'EQUIPMENT MAX' : 'Deep Space Array upgrades'}</em></div>
           </div>
 
           <section class="queue-block">
@@ -154,7 +171,7 @@
             {#each BUILD_OPTIONS as option}
               <button disabled={!canQueue(system, option.item)} onclick={() => onQueueBuild(system, option.item)} title={editableTurn ? `${option.cost} industry` : 'Reopen the turn to change production'}>
                 <Icon name={option.icon} size={16}/>
-                <span><strong>{option.item}</strong><small>{option.cost} industry · {option.detail}</small></span>
+                <span><strong>{option.item}</strong><small>{option.cost} industry · {buildDetail(option.item, option.detail)}</small></span>
               </button>
             {/each}
           </div>

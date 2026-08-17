@@ -7,6 +7,7 @@
   import FleetsView from './FleetsView.svelte';
   import PlanetsView from './PlanetsView.svelte';
   import TurnReportView from './TurnReportView.svelte';
+  import ResearchView from './ResearchView.svelte';
   import SectionViews from '../components/SectionViews.svelte';
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
@@ -88,9 +89,13 @@
   $: colonizerInSelected = selectedSystem?.fleets.find((fleet) =>
     fleet.ownerPlayerId === connection.playerId && colonyCapacity(fleet) > 0
   ) ?? null;
+  $: movementRange = demoMode ? 1 : Math.max(1, status?.research?.modifiers.fleetMovementRange ?? 1);
   $: validDestinationIds = planningFleetCurrent
-    ? gameRoutes.flatMap((route) => route.from === planningFleetCurrent?.systemId ? [route.to] : route.to === planningFleetCurrent?.systemId ? [route.from] : [])
+    ? systemsWithinRange(planningFleetCurrent.systemId ?? '', movementRange)
     : [];
+  $: researchProjectId = orders.research?.[0]?.technologyId ?? orders.research?.[0]?.field ?? status?.research?.activeTechnologyId ?? '';
+  $: researchProjectName = status?.research_catalog?.find((technology) => technology.id === researchProjectId)?.name ?? 'Choose technology';
+  $: industryBonusPercent = Math.max(0, status?.research?.modifiers.industryIncomePercent ?? 0);
   $: playerIds = (status?.players ?? []).map((player) => player.id);
   $: currentPlayerOwner = ownerForPlayerId(connection.playerId, playerIds);
   $: currentPlayerColor = OWNER_COLORS[currentPlayerOwner];
@@ -126,11 +131,12 @@
     if (planningFleet && !demoMode) {
       const sourceSystemId = planningFleet.systemId ?? '';
       if (system.id === sourceSystemId) {
-        localNotice = 'Select a different connected system as the destination.';
+        localNotice = 'Select a different system within movement range.';
         return;
       }
-      if (!routeExists(sourceSystemId, system.id)) {
-        localNotice = `${system.name} is not directly connected to ${planningFleet.location}. Select a connected system.`;
+      const distance = routeDistance(sourceSystemId, system.id, movementRange);
+      if (distance === null || distance > movementRange) {
+        localNotice = `${system.name} is outside ${planningFleet.name}'s ${movementRange}-hop movement range.`;
         return;
       }
 
@@ -160,10 +166,42 @@
     showNotice(notice);
   }
 
-  function routeExists(from: string, to: string): boolean {
-    return gameRoutes.some((route) =>
-      (route.from === from && route.to === to) || (route.from === to && route.to === from)
-    );
+  function routeDistance(from: string, to: string, maxDistance: number): number | null {
+    if (!from || !to) return null;
+    if (from === to) return 0;
+
+    const adjacency = new Map<string, string[]>();
+    for (const system of gameSystems) adjacency.set(system.id, []);
+    for (const route of gameRoutes) {
+      if (!adjacency.has(route.from) || !adjacency.has(route.to)) continue;
+      adjacency.get(route.from)?.push(route.to);
+      adjacency.get(route.to)?.push(route.from);
+    }
+
+    const visited = new Set<string>([from]);
+    let frontier = [from];
+    for (let distance = 1; distance <= Math.max(1, maxDistance); distance += 1) {
+      const next: string[] = [];
+      for (const systemId of frontier) {
+        for (const neighbour of adjacency.get(systemId) ?? []) {
+          if (visited.has(neighbour)) continue;
+          if (neighbour === to) return distance;
+          visited.add(neighbour);
+          next.push(neighbour);
+        }
+      }
+      if (next.length === 0) break;
+      frontier = next;
+    }
+
+    return null;
+  }
+
+  function systemsWithinRange(from: string, maxDistance: number): string[] {
+    if (!from) return [];
+    return gameSystems
+      .map((system) => system.id)
+      .filter((systemId) => systemId !== from && routeDistance(from, systemId, maxDistance) !== null);
   }
 
   function colonyCapacity(fleet: FleetSummary): number {
@@ -184,7 +222,9 @@
 
   function projectedIndustry(system: StarSystem): number {
     const industry = system.resources.find((resource) => resource.id === 'industry');
-    return industry ? industry.value + industry.income : 0;
+    if (!industry) return 0;
+    const effectiveIncome = industry.income + Math.floor(industry.income * industryBonusPercent / 100);
+    return industry.value + effectiveIncome;
   }
 
   function reservedIndustry(systemId: string): number {
@@ -319,7 +359,7 @@
     planningFleet = fleet;
     activeSection = 'galaxy';
     rightPanelOpen = true;
-    localNotice = `Planning ${fleet.name}: choose one of the highlighted connected systems.`;
+    localNotice = `Planning ${fleet.name}: choose one of the highlighted systems within ${movementRange} hop${movementRange === 1 ? '' : 's'}.`;
   }
 
   function addWaypoint(action: 'move' | 'colonize' = 'move'): void {
@@ -368,12 +408,31 @@
     beginWaypointForFleet(fleet, selectedSystem);
   }
 
-  function prioritizeResearch(field: string): void {
-    if (!demoMode) {
-      localNotice = 'Research processing is not enabled yet.';
+  function prioritizeResearch(technologyId: string): void {
+    if (!demoMode && !editableTurn) {
+      localNotice = 'Reopen the turn before changing research.';
       return;
     }
-    updateOrders({ ...orders, research: [{ field, allocation: 100 }] }, `${field} research prioritized`);
+
+    if (!demoMode) {
+      const technology = status?.research_catalog?.find((candidate) => candidate.id === technologyId);
+      if (!technology) {
+        localNotice = 'The selected research technology is not available.';
+        return;
+      }
+      const completed = new Set(status?.research?.completed ?? []);
+      if (completed.has(technologyId) || !technology.prerequisites.every((id) => completed.has(id))) {
+        localNotice = `${technology.name} is completed or still locked.`;
+        return;
+      }
+      updateOrders(
+        { ...orders, research: [{ technologyId, field: technologyId, allocation: 100 }] },
+        `${technology.name} selected for research.`
+      );
+      return;
+    }
+
+    updateOrders({ ...orders, research: [{ technologyId, field: technologyId, allocation: 100 }] }, `${technologyId} research prioritized`);
   }
 
   function openTechnical(): void {
@@ -415,7 +474,7 @@
     <button class="top-icon" aria-label="Exit to menu" onclick={onExit}><Icon name="power" /></button>
   </header>
 
-  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets' || activeSection === 'report'}>
+  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets' || activeSection === 'research' || activeSection === 'report'}>
     <nav class="sidebar" class:open={sidebarOpen}>
       {#each navigation as item}
         <button class:active={activeSection === item.id} onclick={() => { activeSection = item.id; sidebarOpen = false; }}><Icon name={item.icon} size={25}/><span>{item.label}</span></button>
@@ -450,6 +509,7 @@
           currentPlayerId={connection.playerId}
           {orders}
           {editableTurn}
+          researchModifiers={status?.research?.modifiers ?? null}
           ownerColor={currentPlayerColor}
           onLocate={openPlanet}
           onQueueBuild={addProductionForSystem}
@@ -467,20 +527,28 @@
           onLocate={(fleet, system) => selectFleet(fleet, system, true)}
           onPlanRoute={beginWaypointForFleet}
         />
+      {:else if activeSection === 'research' && !demoMode}
+        <ResearchView
+          research={status?.research ?? null}
+          catalog={status?.research_catalog ?? []}
+          {orders}
+          {editableTurn}
+          onResearch={prioritizeResearch}
+        />
       {:else if activeSection === 'report' && !demoMode}
-        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet} onOpenOrders={openTechnical}/>
+        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet} onOpenOrders={openTechnical} onOpenResearch={() => (activeSection = 'research')}/>
       {:else if !demoMode}
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>
           <h2>{navigation.find((item) => item.id === activeSection)?.label ?? activeSection}</h2>
-          <p>This section is not connected to the live game state yet. Live gameplay currently includes fleet management, movement, colonization and one-turn production.</p>
+          <p>This section is not connected to the live game state yet. Live gameplay currently includes fleet management, multi-hop movement, colonization, production, research and sensor intelligence.</p>
         </section>
       {:else}
         <SectionViews section={activeSection} {status} onSelectSystem={selectSystem} onResearch={prioritizeResearch}/>
       {/if}
     </main>
 
-    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && activeSection !== 'report' && selectedSystem}
+    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && activeSection !== 'research' && activeSection !== 'report' && selectedSystem}
       <div class="right-wrap" class:open={rightPanelOpen}>
         <button class="panel-toggle" aria-label="Toggle detail panel" onclick={() => (rightPanelOpen = !rightPanelOpen)}><Icon name={rightPanelOpen ? 'chevron-right' : 'chevron-left'} size={17}/></button>
         <DetailPanel
@@ -489,6 +557,7 @@
           currentPlayerId={connection.playerId}
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)}
+          researchModifiers={status?.research?.modifiers ?? null}
           productionOrders={(orders.production ?? []).filter((order) => order.systemId === selectedSystem?.id)}
           onRemoveBuild={removeProductionFromSelected}
           onBuild={addProduction}
@@ -503,7 +572,7 @@
     <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? ownFleetInSelected.name : 'Select a fleet'}</small></span></button>
     <button onclick={() => addWaypoint('colonize')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== null || !colonizerInSelected)) || (demoMode && selectedSystem.owner !== 'neutral')}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode ? 'Establish colony' : selectedSystem?.ownerPlayerId !== null ? 'Select unclaimed system' : colonizerInSelected ? `${colonyCapacity(colonizerInSelected)} colony module` : 'Requires colony module'}</small></span></button>
     <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId)) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : selectedSystem?.ownerPlayerId === connection.playerId ? 'Queue orbital factory' : 'Select your colony'}</small></span></button>
-    <button onclick={() => (activeSection = 'research')} disabled={!demoMode}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : 'Coming later'}</small></span></button>
+    <button onclick={() => (activeSection = 'research')}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : researchProjectName}</small></span></button>
     {#if ownSubmitted && serverTurnStatus === 'open' && !demoMode}
       <button class="draft-button" disabled={busy} onclick={onReopen}><Icon name="load" size={24}/><span><strong>Reopen turn</strong><small>Continue editing orders</small></span></button>
     {:else}
