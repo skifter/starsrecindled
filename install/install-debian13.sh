@@ -4,8 +4,17 @@ set -Eeuo pipefail
 umask 027
 IFS=$'\n\t'
 
-SCRIPT_VERSION="2026-08-17.2"
+SCRIPT_VERSION="2026-08-17.3"
 CURRENT_STEP="initialisering"
+
+# STARS_INSTALLER_CONFIG_061
+# Husk om værdierne kom eksplicit fra kaldet. Prioritet:
+# CLI/environment > eksisterende .env.local/nginx > interaktivt spørgsmål/default.
+DOMAIN_EXPLICIT="${DOMAIN+x}"
+ENABLE_TLS_EXPLICIT="${ENABLE_TLS+x}"
+LE_EMAIL_EXPLICIT="${LE_EMAIL+x}"
+MAILER_DSN_EXPLICIT="${MAILER_DSN+x}"
+STARS_MAILER_FROM_EXPLICIT="${STARS_MAILER_FROM+x}"
 
 APP_NAME="stars"
 APP_USER="${APP_USER:-stars}"
@@ -20,11 +29,11 @@ PACKAGE_VERSION="${PACKAGE_VERSION:-dev-main}"
 SYMFONY_VERSION="${SYMFONY_VERSION:-7.4.*}"
 
 DOMAIN="${DOMAIN:-}"
-ENABLE_TLS="${ENABLE_TLS:-0}"
+ENABLE_TLS="${ENABLE_TLS:-}"
 EXISTING_TLS="0"
 LE_EMAIL="${LE_EMAIL:-}"
 MAILER_DSN="${MAILER_DSN:-smtp://sogo.bellcom.dk:25?require_tls=true}"
-STARS_MAILER_FROM="${STARS_MAILER_FROM:-js@bellcom.dk}"
+STARS_MAILER_FROM="${STARS_MAILER_FROM:-}"
 
 DB_NAME="${DB_NAME:-stars}"
 DB_USER="${DB_USER:-stars}"
@@ -44,6 +53,10 @@ LOG_FILE="${BACKUP_DIR}/install.log"
 NGINX_SITE="/etc/nginx/sites-available/stars"
 NGINX_LINK="/etc/nginx/sites-enabled/stars"
 NGINX_DEFAULT_LINK="/etc/nginx/sites-enabled/default"
+EXISTING_ENV_FILE="${APP_ROOT}/.env.local"
+EXISTING_INSTALLATION="0"
+EXISTING_TLS="0"
+CONFIG_SOURCE="fresh/defaults"
 WORKER_UNIT="/etc/systemd/system/stars-messenger-worker.service"
 RECONCILE_UNIT="/etc/systemd/system/stars-queue-reconcile.service"
 RECONCILE_TIMER="/etc/systemd/system/stars-queue-reconcile.timer"
@@ -289,13 +302,156 @@ BASH_ROLLBACK
     chmod 0700 "${rollback}"
 }
 
+
+# Læs én kendt værdi fra den eksisterende Symfony .env.local.
+# Filen er genereret af Stars-installeren og sources i en isoleret bash-proces.
+read_existing_dotenv() {
+    local key="$1"
+    local file="${EXISTING_ENV_FILE}"
+    [[ -r "${file}" ]] || return 1
+
+    /bin/bash -c '
+        set -a
+        # shellcheck disable=SC1090
+        source "$1"
+        printf "%s" "${!2-}"
+    ' _ "${file}" "${key}"
+}
+
+prompt_value() {
+    local variable_name="$1"
+    local label="$2"
+    local default_value="${3-}"
+    local answer=""
+
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        [[ -n "${default_value}" ]] || die "${label} mangler, og installationen kører ikke interaktivt."
+        printf -v "${variable_name}" '%s' "${default_value}"
+        return
+    fi
+
+    if [[ -n "${default_value}" ]]; then
+        read -r -p "${label} [${default_value}]: " answer
+        answer="${answer:-${default_value}}"
+    else
+        while [[ -z "${answer}" ]]; do
+            read -r -p "${label}: " answer
+        done
+    fi
+    printf -v "${variable_name}" '%s' "${answer}"
+}
+
+prompt_yes_no_01() {
+    local variable_name="$1"
+    local label="$2"
+    local default_value="${3:-1}"
+    local answer=""
+    local suffix="[Y/n]"
+    [[ "${default_value}" == "0" ]] && suffix="[y/N]"
+
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        printf -v "${variable_name}" '%s' "${default_value}"
+        return
+    fi
+
+    while true; do
+        read -r -p "${label} ${suffix}: " answer
+        answer="${answer:-$([[ "${default_value}" == "1" ]] && printf y || printf n)}"
+        case "${answer,,}" in
+            y|yes|j|ja) printf -v "${variable_name}" '%s' "1"; return ;;
+            n|no|nej)   printf -v "${variable_name}" '%s' "0"; return ;;
+        esac
+    done
+}
+
+resolve_install_configuration() {
+    local existing_frontend=""
+    local existing_mailer=""
+    local existing_from=""
+    local nginx_domain=""
+
+    if [[ -r "${EXISTING_ENV_FILE}" ]]; then
+        EXISTING_INSTALLATION="1"
+        CONFIG_SOURCE="${EXISTING_ENV_FILE}"
+        existing_frontend="$(read_existing_dotenv STARS_FRONTEND_BASE_URL || true)"
+        existing_mailer="$(read_existing_dotenv MAILER_DSN || true)"
+        existing_from="$(read_existing_dotenv STARS_MAILER_FROM || true)"
+
+        if [[ -z "${DOMAIN_EXPLICIT}" && -z "${DOMAIN}" && -n "${existing_frontend}" ]]; then
+            case "${existing_frontend}" in
+                http://*|https://*)
+                    DOMAIN="${existing_frontend#*://}"
+                    DOMAIN="${DOMAIN%%/*}"
+                    DOMAIN="${DOMAIN%%:*}"
+                    ;;
+            esac
+        fi
+
+        if [[ -z "${MAILER_DSN_EXPLICIT}" && -z "${MAILER_DSN}" && -n "${existing_mailer}" ]]; then
+            MAILER_DSN="${existing_mailer}"
+        fi
+        if [[ -z "${STARS_MAILER_FROM_EXPLICIT}" && -z "${STARS_MAILER_FROM}" && -n "${existing_from}" ]]; then
+            STARS_MAILER_FROM="${existing_from}"
+        fi
+
+        if [[ "${existing_frontend}" == https://* ]]; then
+            EXISTING_TLS="1"
+        fi
+    fi
+
+    if [[ -f "${NGINX_SITE}" ]]; then
+        if grep -Eq 'listen[[:space:]].*443.*ssl' "${NGINX_SITE}"; then
+            EXISTING_TLS="1"
+        fi
+        if [[ -z "${DOMAIN_EXPLICIT}" && -z "${DOMAIN}" ]]; then
+            nginx_domain="$(
+                awk '
+                    $1 == "server_name" {
+                        value=$2
+                        gsub(/;/, "", value)
+                        if (value != "_" && value != "") { print value; exit }
+                    }
+                ' "${NGINX_SITE}"
+            )"
+            [[ -n "${nginx_domain}" ]] && DOMAIN="${nginx_domain}"
+        fi
+    fi
+
+    if [[ -z "${ENABLE_TLS_EXPLICIT}" && -z "${ENABLE_TLS}" ]]; then
+        if [[ "${EXISTING_TLS}" == "1" ]]; then
+            ENABLE_TLS="1"
+        elif [[ "${EXISTING_INSTALLATION}" == "1" ]]; then
+            ENABLE_TLS="0"
+        fi
+    fi
+
+    if [[ -z "${DOMAIN}" ]]; then
+        prompt_value DOMAIN "Domain"
+    fi
+    if [[ -z "${MAILER_DSN}" ]]; then
+        prompt_value MAILER_DSN "Mailer DSN" "null://null"
+    fi
+    if [[ -z "${STARS_MAILER_FROM}" ]]; then
+        prompt_value STARS_MAILER_FROM "Mailer from" "js@bellcom.dk"
+    fi
+    if [[ -z "${ENABLE_TLS}" ]]; then
+        prompt_yes_no_01 ENABLE_TLS "Aktivér HTTPS med Let's Encrypt?" "1"
+    fi
+    if [[ "${ENABLE_TLS}" == "1" && "${EXISTING_TLS}" != "1" && -z "${LE_EMAIL}" ]]; then
+        prompt_value LE_EMAIL "Let's Encrypt email" "${STARS_MAILER_FROM}"
+    fi
+}
+
 [[ "${EUID}" -eq 0 ]] || die "Scriptet skal køres som root."
+resolve_install_configuration
 [[ -n "${DOMAIN}" ]] || die "DOMAIN mangler. Eksempel: DOMAIN=stars.example.dk"
 [[ "${ENABLE_TLS}" == "0" || "${ENABLE_TLS}" == "1" ]] ||
     die "ENABLE_TLS skal være 0 eller 1."
 
 if [[ "${ENABLE_TLS}" == "1" ]]; then
-    [[ -n "${LE_EMAIL}" ]] || die "LE_EMAIL kræves, når ENABLE_TLS=1."
+    if [[ "${EXISTING_TLS}" != "1" ]]; then
+        [[ -n "${LE_EMAIL}" ]] || die "LE_EMAIL kræves ved første TLS-opsætning."
+    fi
     [[ "${DOMAIN}" != *":"* ]] || die "DOMAIN må ikke indeholde portnummer."
     [[ ! "${DOMAIN}" =~ ^[0-9.]+$ ]] || die "Let's Encrypt kræver et domænenavn, ikke en IPv4-adresse."
 fi
@@ -329,6 +485,8 @@ exec > >(tee -a "${LOG_FILE}") 2>&1
 log "Stars Recindled-installation ${SCRIPT_VERSION}"
 log "Backup: ${BACKUP_DIR}"
 log "Release: ${RELEASE_ROOT}"
+log "Konfiguration: domain=${DOMAIN}, TLS=${ENABLE_TLS}, mailer-from=${STARS_MAILER_FROM}"
+if [[ "${EXISTING_INSTALLATION}" == "1" ]]; then log "Genbruger eksisterende konfiguration fra ${CONFIG_SOURCE}."; fi
 
 CURRENT_STEP="installation af Debian-pakker"
 export DEBIAN_FRONTEND=noninteractive
@@ -527,7 +685,14 @@ mariadb \
     --execute='SELECT DATABASE(), CURRENT_USER(), VERSION();'
 rm -f "${DB_CLIENT_CONFIG}"
 
+CURRENT_STEP="kontrol af package repository"
+log "Kontrollerer adgang til ${PACKAGE_REPOSITORY} ..."
+run_as_app git ls-remote "${PACKAGE_REPOSITORY}" HEAD >/dev/null
+log "Repository: OK"
+
 CURRENT_STEP="oprettelse af Symfony-værtsapplikation"
+log "Opretter Symfony-værtsapplikation ${SYMFONY_VERSION} ..."
+COMPOSER_STEP_STARTED="${SECONDS}"
 install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0755 "${RELEASE_ROOT}"
 rmdir "${RELEASE_ROOT}"
 
@@ -536,12 +701,14 @@ run_as_app composer create-project \
     "${RELEASE_ROOT}" \
     --prefer-dist \
     --no-interaction \
-    --no-progress
 
 run_as_app composer \
     --working-dir="${RELEASE_ROOT}" \
     config repositories.starsrecindled vcs "${PACKAGE_REPOSITORY}"
 
+log "Symfony skeleton klar efter $((SECONDS - COMPOSER_STEP_STARTED)) sek."
+log "Henter Stars-pakken og Composer-afhængigheder. Dette kan tage nogle minutter ..."
+COMPOSER_STEP_STARTED="${SECONDS}"
 run_as_app composer \
     --working-dir="${RELEASE_ROOT}" \
     require \
@@ -552,8 +719,8 @@ run_as_app composer \
     symfony/monolog-bundle \
     --with-all-dependencies \
     --no-interaction \
-    --no-progress
 
+log "Stars-pakken og Composer-afhængigheder klar efter $((SECONDS - COMPOSER_STEP_STARTED)) sek."
 PACKAGE_ROOT="${RELEASE_ROOT}/vendor/skifter/starsrecindled"
 test -f "${PACKAGE_ROOT}/composer.json"
 test -f "${PACKAGE_ROOT}/examples/symfony/config/packages/stars_turn.yaml"
@@ -662,7 +829,6 @@ run_as_app composer \
     --optimize-autoloader \
     --classmap-authoritative \
     --no-interaction \
-    --no-progress
 
 CURRENT_STEP="bygning af Svelte-frontend"
 rm -rf "${RELEASE_ROOT}/frontend"
