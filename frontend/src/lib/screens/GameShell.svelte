@@ -207,6 +207,18 @@
     localNotice = `${fleet.name} selected · ${fleet.ships.toLocaleString('en-US')} ships at ${system.name}.`;
   }
 
+  function selectFleetFromDetail(fleet: FleetSummary): void {
+    const system = selectedSystem;
+    if (!system) return;
+    selectFleet(fleet, system);
+  }
+
+  function beginWaypointFromDetail(fleet: FleetSummary): void {
+    const system = selectedSystem;
+    if (!system) return;
+    beginWaypointForFleet(fleet, system);
+  }
+
   function beginWaypointForFleet(fleet: FleetSummary, system: StarSystem): void {
     if (!serverUniverseReady()) return;
     if (!demoMode && !editableTurn) {
@@ -379,8 +391,8 @@
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)}
           onBuild={addProduction}
-          onSelectFleet={(fleet) => selectFleet(fleet, selectedSystem)}
-          onWaypointFleet={(fleet) => beginWaypointForFleet(fleet, selectedSystem)}
+          onSelectFleet={selectFleetFromDetail}
+          onWaypointFleet={beginWaypointFromDetail}
         />
       </div>
     {/if}

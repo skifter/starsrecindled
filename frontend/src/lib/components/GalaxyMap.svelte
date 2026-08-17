@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountTurnStatusPlayer, FleetSummary, RouteLink, StarSystem } from '../types';
+  import type { AccountTurnStatusPlayer, FleetSummary, Owner, RouteLink, StarSystem } from '../types';
 
   export let systems: StarSystem[] = [];
   export let routes: RouteLink[] = [];
@@ -33,7 +33,7 @@
     return { x: (system?.x ?? 0) * 10, y: (system?.y ?? 0) * 6.2 };
   }
 
-  function playerOwner(playerId: number): string {
+  function playerOwner(playerId: number): Owner {
     return ownerForPlayerId(playerId, playerIds);
   }
 
