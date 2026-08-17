@@ -2,16 +2,16 @@
   import Icon from './Icon.svelte';
   import PlanetSensorVisual from './PlanetSensorVisual.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountTurnStatusPlayer, FleetSummary, ProductionOrder, ResearchModifiers, StarSystem } from '../types';
+  import type { AccountTurnStatusPlayer, FleetSummary, ModelCatalog, ProductionOrder, StarSystem, TechnologyModel } from '../types';
 
   export let system: StarSystem;
   export let players: AccountTurnStatusPlayer[] = [];
   export let currentPlayerId = 0;
   export let selectedFleetId = '';
   export let canBuild = false;
-  export let researchModifiers: ResearchModifiers | null = null;
+  export let modelCatalog: ModelCatalog | null = null;
   export let productionOrders: ProductionOrder[] = [];
-  export let onBuild: (item: string) => void;
+  export let onBuild: (item: string, modelId?: string) => void;
   export let onRemoveBuild: (item: string) => void = () => {};
   export let onSelectFleet: (fleet: FleetSummary) => void = () => {};
   export let onWaypointFleet: (fleet: FleetSummary) => void = () => {};
@@ -24,12 +24,26 @@
   $: isStale = system.visibilityState === 'explored';
   $: playerIds = players.map((player) => player.id);
   $: systemColor = OWNER_COLORS[system.owner];
-  $: sensorRange = system.ownerPlayerId === null ? 0 : Math.max(1, Math.min(3, Math.round(system.sensorRange ?? 1)));
-  $: queuedSensorUpgrades = productionOrders.filter((order) => order.item === 'Deep Space Array').reduce((sum, order) => sum + Math.max(1, order.quantity), 0);
-  $: projectedSensorRange = Math.min(3, sensorRange + queuedSensorUpgrades);
-  $: effectiveSensorRange = Math.min(5, sensorRange + (isYours ? Math.max(0, researchModifiers?.colonySensorBonus ?? 0) : 0));
-  $: defenseGridAmount = Math.max(250, researchModifiers?.defenseGridAmount ?? 250);
-  $: industryBonusPercent = Math.max(0, researchModifiers?.industryIncomePercent ?? 0);
+  $: sensorRange = system.ownerPlayerId === null ? 0 : Math.max(1, Math.min(4, Math.round(system.sensorRange ?? 1)));
+  $: effectiveSensorRange = sensorRange;
+  $: currentScout = modelCatalog?.designs.find((design) => design.current) ?? modelCatalog?.designs[0] ?? null;
+  $: buildModels = ['defense_grid', 'orbital_factory', 'deep_space_array'].map((family) => preferredInstallation(family)).filter((model): model is TechnologyModel => model !== null);
+
+  function preferredInstallation(family: string): TechnologyModel | null {
+    return [...(modelCatalog?.installations ?? [])]
+      .filter((model) => model.family === family && model.unlocked)
+      .sort((a, b) => b.version - a.version)[0] ?? null;
+  }
+
+  function installedFamily(family: string): boolean {
+    return (system.installations ?? []).some((installation) => installation.family === family);
+  }
+
+  function modelIcon(model: TechnologyModel): string {
+    if (model.family === 'defense_grid') return 'shield';
+    if (model.family === 'deep_space_array') return 'target';
+    return 'industry';
+  }
 
   function fleetColor(fleet: FleetSummary): string {
     return fleet.ownerPlayerId ? OWNER_COLORS[ownerForPlayerId(fleet.ownerPlayerId, playerIds)] : OWNER_COLORS.neutral;
@@ -69,7 +83,7 @@
   <div class="summary-grid">
     <div><Icon name="user" size={19}/><span><small>Population</small><strong>{system.population.toFixed(1)} / {system.capacity.toFixed(1)}B</strong></span></div>
     <div><span class="happy">☺</span><span><small>Happiness</small><strong>{system.happiness}%</strong></span></div>
-    <div><Icon name="target" size={19}/><span><small>Sensor range</small><strong>{effectiveSensorRange} hop{effectiveSensorRange === 1 ? '' : 's'}{isYours && (researchModifiers?.colonySensorBonus ?? 0) > 0 ? ` · tech +${researchModifiers?.colonySensorBonus}` : projectedSensorRange > sensorRange ? ` → ${projectedSensorRange}` : ''}</strong></span></div>
+    <div><Icon name="target" size={19}/><span><small>Sensor range</small><strong>{effectiveSensorRange} hop{effectiveSensorRange === 1 ? '' : 's'}</strong></span></div>
   </div>
 
   <section class="panel-section">
@@ -78,7 +92,7 @@
       {#each system.resources as resource}
         <div title={resource.label}>
           <Icon name={resource.icon} size={17}/>
-          <span><strong>{resource.value.toLocaleString('en-US')}</strong><small>+{resource.id === 'industry' && isYours ? resource.income + Math.floor(resource.income * industryBonusPercent / 100) : resource.income}{resource.id === 'industry' && isYours && industryBonusPercent > 0 ? ` (${industryBonusPercent}% tech)` : ''}</small></span>
+          <span><strong>{resource.value.toLocaleString('en-US')}</strong><small>+{resource.income}</small></span>
         </div>
       {/each}
     </div>
@@ -90,7 +104,7 @@
       <div class="queue">
         {#each productionOrders as item}
           <div class="queue-item draft">
-            <Icon name={item.item === 'Scout Wing' ? 'fleet' : item.item === 'Defense Grid' ? 'shield' : item.item === 'Deep Space Array' ? 'target' : 'industry'} size={17}/>
+            <Icon name={item.productionKind === 'ship' || item.modelId?.startsWith('scout-') ? 'fleet' : item.modelId?.startsWith('defense_grid') ? 'shield' : item.modelId?.startsWith('deep_space_array') ? 'target' : 'industry'} size={17}/>
             <span><strong>{item.item}</strong><small>Completes when the turn is processed</small></span><em>×{item.quantity}</em>
             <button disabled={!canBuild} title={`Remove one ${item.item}`} onclick={() => onRemoveBuild(item.item)}>−1</button>
           </div>
@@ -99,11 +113,21 @@
     {:else}
       <p class="empty idle-production">This system is not building anything this turn.</p>
     {/if}
+    <div class="installed-models">
+      {#each (system.installations ?? []) as installation}
+        <span><strong>{installation.name}</strong><small>v{installation.version}</small></span>
+      {/each}
+      {#if (system.installations ?? []).length === 0}<span><strong>Base colony</strong><small>No registered installations</small></span>{/if}
+    </div>
     <div class="build-options">
-      <button disabled={!canBuild} onclick={() => onBuild('Scout Wing')}><Icon name="fleet" size={15}/><span><strong>Scout Wing</strong><small>300 industry · 40 ships</small></span></button>
-      <button disabled={!canBuild} onclick={() => onBuild('Defense Grid')}><Icon name="shield" size={15}/><span><strong>Defense Grid</strong><small>250 industry · +{defenseGridAmount} defenses</small></span></button>
-      <button disabled={!canBuild} onclick={() => onBuild('Orbital Factory')}><Icon name="industry" size={15}/><span><strong>Orbital Factory</strong><small>400 industry · +8 industry/turn</small></span></button>
-      <button disabled={!canBuild || projectedSensorRange >= 3} onclick={() => onBuild('Deep Space Array')}><Icon name="target" size={15}/><span><strong>Deep Space Array</strong><small>{projectedSensorRange >= 3 ? 'Maximum sensor range reached/queued' : '350 industry · +1 sensor hop'}</small></span></button>
+      {#if currentScout}
+        <button disabled={!canBuild} onclick={() => onBuild(currentScout.name, currentScout.id)}><Icon name="fleet" size={15}/><span><strong>{currentScout.name}</strong><small>{currentScout.industryCost} industry · {currentScout.batchSize} ships · {currentScout.stats.movementRange} hop</small></span></button>
+      {/if}
+      {#each buildModels as model}
+        <button disabled={!canBuild || installedFamily(model.family)} onclick={() => onBuild(model.name, model.id)} title={installedFamily(model.family) ? 'Existing model remains installed; explicit upgrade arrives in 0.7.2' : `${model.stats.industryCost ?? 0} industry`}>
+          <Icon name={modelIcon(model)} size={15}/><span><strong>{model.name}</strong><small>{installedFamily(model.family) ? 'Upgrade path registered · 0.7.2' : `${model.stats.industryCost ?? 0} industry · new installation`}</small></span>
+        </button>
+      {/each}
     </div>
     {#if !canBuild}<p class="build-hint">{isYours ? 'Reopen the turn to add production.' : 'Production is only available in your colonies.'}</p>{/if}
   </section>
@@ -125,6 +149,7 @@
               <span class="fleet-copy">
                 <strong>{fleet.name}</strong>
                 <small>{fleet.ownerLabel ?? (ownFleet ? 'You' : 'Other player')} · {fleet.role}</small>
+                {#if fleet.composition?.length}<small class="design-line">{fleet.composition.map((entry) => `${entry.designName} ×${entry.quantity}`).join(' · ')}</small>{/if}
                 {#if fleet.destination}<small class="destination">→ {fleet.destination}</small>{/if}
                 {#if colonyCapacity(fleet) > 0}<small class="colony">Colony module ×{colonyCapacity(fleet)}</small>{/if}
               </span>
@@ -152,7 +177,7 @@
   .summary-grid{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid rgba(62,164,218,.2)}.summary-grid>div{min-height:54px;display:flex;align-items:center;gap:.6rem;padding:0 .8rem;border-right:1px solid rgba(62,164,218,.16);color:#75cfff}.summary-grid small,.summary-grid strong{display:block}.summary-grid small{color:#7991a2;font-size:.65rem}.summary-grid strong{color:#dcebf4;font-size:.8rem;margin-top:.1rem}.happy{color:#8cdd60;font-size:1.45rem}
   .panel-section{padding:.8rem 1rem;border-bottom:1px solid rgba(62,164,218,.18)}.panel-section h3{margin:0 0 .65rem;color:#49c5ff;text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}.resources{display:flex;justify-content:space-between;gap:.4rem}.resources div{display:flex;align-items:center;gap:.35rem;color:#74d0fb}.resources div span{display:block}.resources strong,.resources small{display:block}.resources strong{color:#dae9f2;font-size:.72rem}.resources small{margin-top:.05rem;color:#6da6c2;font-size:.56rem}
   .production-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.production-heading h3{margin-bottom:.65rem}.production-heading span{margin-bottom:.65rem;color:#6d899b;font-size:.55rem;text-transform:uppercase;letter-spacing:.06em}.queue{display:grid;gap:.45rem}.queue-item{display:grid;grid-template-columns:20px minmax(0,1fr) 28px 30px;gap:.45rem;align-items:center;color:#5fcaff}.queue-item span strong,.queue-item span small{display:block}.queue-item span strong{color:#bcd0dc;font-size:.68rem;font-weight:500}.queue-item span small{margin-top:.12rem;color:#657f90;font-size:.53rem}.queue-item em{color:#e3c466;font-style:normal;font-size:.68rem;text-align:right}.queue-item button{height:27px;border:1px solid rgba(196,104,78,.3);background:rgba(67,24,18,.45);color:#e2a18d;font:inherit;font-size:.58rem;cursor:pointer}.queue-item button:disabled{opacity:.35;cursor:not-allowed}.idle-production{color:#b59b61}
-  .build-options{display:grid;gap:.38rem;margin-top:.65rem}.build-options button{min-height:42px;display:grid;grid-template-columns:20px 1fr;gap:.45rem;align-items:center;padding:.4rem .55rem;border:1px solid rgba(61,160,209,.25);background:rgba(5,27,42,.72);color:#58caff;text-align:left;cursor:pointer}.build-options button:hover:not(:disabled){border-color:#48caff;background:rgba(10,49,72,.86)}.build-options button:disabled{opacity:.35;cursor:not-allowed}.build-options span,.build-options strong,.build-options small{display:block}.build-options strong{color:#c7dbe6;font-size:.67rem;font-weight:500}.build-options small{margin-top:.12rem;color:#69899d;font-size:.56rem}.build-hint{margin:.5rem 0 0;color:#71899b;font-size:.62rem;line-height:1.4}
+  .installed-models{display:flex;gap:.3rem;flex-wrap:wrap;margin:.55rem 0}.installed-models span{padding:.28rem .36rem;border:1px solid rgba(59,145,188,.18);background:rgba(5,24,38,.55)}.installed-models strong,.installed-models small{display:block}.installed-models strong{color:#afc6d2;font-size:.54rem;font-weight:500}.installed-models small{margin-top:.08rem;color:#677f90;font-size:.45rem}.build-options{display:grid;gap:.38rem;margin-top:.65rem}.build-options button{min-height:42px;display:grid;grid-template-columns:20px 1fr;gap:.45rem;align-items:center;padding:.4rem .55rem;border:1px solid rgba(61,160,209,.25);background:rgba(5,27,42,.72);color:#58caff;text-align:left;cursor:pointer}.build-options button:hover:not(:disabled){border-color:#48caff;background:rgba(10,49,72,.86)}.build-options button:disabled{opacity:.35;cursor:not-allowed}.build-options span,.build-options strong,.build-options small{display:block}.build-options strong{color:#c7dbe6;font-size:.67rem;font-weight:500}.build-options small{margin-top:.12rem;color:#69899d;font-size:.56rem}.build-hint{margin:.5rem 0 0;color:#71899b;font-size:.62rem;line-height:1.4}
   .split-title{display:grid;grid-template-columns:1fr auto}.split-title h3{grid-column:1}.split-title>span{grid-column:2;color:#dcebf3;font-size:.75rem}.defense-row{grid-column:1/-1;display:flex;gap:.7rem;align-items:center;color:#8dcdf0}.defense-row div{display:flex;gap:5px}.defense-row i{width:19px;height:12px;border:1px solid #568eb0;background:linear-gradient(180deg,#2d6689,#102334);clip-path:polygon(40% 0,60% 0,70% 35%,100% 50%,85% 100%,15% 100%,0 50%,30% 35%)}
   .fleets-section{padding-left:.75rem;padding-right:.75rem;background:linear-gradient(180deg,rgba(8,31,47,.4),rgba(3,14,24,.1))}.section-heading{display:flex;align-items:center;justify-content:space-between;padding:0 .25rem}.section-heading h3{margin-bottom:.5rem}.section-heading span{min-width:22px;padding:.12rem .35rem;border:1px solid rgba(76,195,244,.25);color:#67d1fb;text-align:center;font-size:.58rem}.fleet-list{display:grid;gap:.45rem}.fleet-card{border:1px solid rgba(66,156,202,.26);border-left:3px solid var(--fleet-color);background:rgba(4,20,32,.82);transition:.15s}.fleet-card.selected{border-color:#ffd05c;border-left-color:#ffd05c;box-shadow:inset 0 0 14px rgba(255,208,92,.06)}.fleet-card.opponent{opacity:.82}.fleet-main{width:100%;min-height:61px;display:grid;grid-template-columns:30px minmax(0,1fr) 52px;gap:.45rem;align-items:center;padding:.45rem .5rem;border:0;background:transparent;color:inherit;text-align:left}.fleet-main:not(:disabled){cursor:pointer}.fleet-main:disabled{cursor:default}.fleet-icon{width:28px;height:28px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--fleet-color) 55%,transparent);color:var(--fleet-color);background:color-mix(in srgb,var(--fleet-color) 8%,transparent)}.fleet-copy,.fleet-copy strong,.fleet-copy small,.ships strong,.ships small{display:block;min-width:0}.fleet-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8e9f2;font-size:.72rem;font-weight:600}.fleet-copy small{margin-top:.14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#718fa1;font-size:.57rem}.fleet-copy .destination{color:#7fd7ff}.fleet-copy .colony{color:#d6b25a;text-transform:uppercase;letter-spacing:.04em}.ships{text-align:right}.ships strong{color:#f1f8fb;font-size:.75rem}.ships small{margin-top:.1rem;color:#678496;font-size:.52rem;text-transform:uppercase}.route-action{width:100%;min-height:31px;display:flex;align-items:center;justify-content:center;gap:.35rem;border:0;border-top:1px solid rgba(65,147,189,.18);background:rgba(7,36,53,.72);color:#58caff;font:inherit;font-size:.61rem;cursor:pointer}.route-action:hover{background:rgba(12,57,81,.9);color:#dff7ff}
   .empty{color:#71899b;font-size:.72rem;margin:.4rem 0}.description{margin:0;padding:1rem;color:#738b9d;font-size:.7rem;line-height:1.5}

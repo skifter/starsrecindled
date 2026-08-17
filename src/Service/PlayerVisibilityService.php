@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Service;
 
-use Bellcom\StarsTurnBundle\Domain\ResearchCatalog;
+use Bellcom\StarsTurnBundle\Domain\TechnologyModelCatalog;
 
 final readonly class PlayerVisibilityService
 {
@@ -23,6 +23,7 @@ final readonly class PlayerVisibilityService
      */
     public function project(array $state, int $playerId, array $history = [], int $currentTurnNumber = 0): array
     {
+        $state = TechnologyModelCatalog::normalizeState($state);
         $currentTurnNumber = max(1, $currentTurnNumber);
 
         /** @var array<string, array<string, mixed>> $memory */
@@ -33,6 +34,7 @@ final readonly class PlayerVisibilityService
             if ($historicalState === []) {
                 continue;
             }
+            $historicalState = TechnologyModelCatalog::normalizeState($historicalState);
 
             $coverage = $this->sensorCoverage($historicalState, $playerId);
             foreach ($this->systems($historicalState) as $system) {
@@ -212,8 +214,6 @@ final readonly class PlayerVisibilityService
         $routes = $this->routes($state);
         $systems = $this->systems($state);
         $fleets = $this->fleets($state);
-        $researchState = ResearchCatalog::playerState($state, $playerId);
-        $researchSensorBonus = max(0, (int) ($researchState['modifiers']['colonySensorBonus'] ?? 0));
 
         /** @var array<string, list<string>> $adjacency */
         $adjacency = [];
@@ -274,8 +274,7 @@ final readonly class PlayerVisibilityService
             if ($systemId === '') {
                 continue;
             }
-            $baseRange = max(1, min(3, (int) ($system['sensorRange'] ?? 1)));
-            $range = min(5, $baseRange + $researchSensorBonus);
+            $range = max(1, min(4, (int) ($system['sensorRange'] ?? 1)));
             $colonySensorRanges[$systemId] = $range;
             $markWithinRange($systemId, $range);
         }
@@ -286,8 +285,9 @@ final readonly class PlayerVisibilityService
             }
             $systemId = is_string($fleet['systemId'] ?? null) ? $fleet['systemId'] : '';
             $role = is_string($fleet['role'] ?? null) ? $fleet['role'] : '';
-            $isScout = in_array($role, ['Scout fleet', 'Exploration fleet'], true);
-            $markWithinRange($systemId, $isScout ? 1 : 0);
+            $fallback = in_array($role, ['Scout fleet', 'Exploration fleet'], true) ? 1 : 0;
+            $fleetSensorRange = max(0, min(3, (int) ($fleet['sensorRange'] ?? $fallback)));
+            $markWithinRange($systemId, $fleetSensorRange);
         }
 
         return [

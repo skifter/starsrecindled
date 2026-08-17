@@ -40,7 +40,14 @@ export function mapLiveUniverse(
         ownerLabel: playerNames.get(fleet.ownerPlayerId) ?? `Player ${fleet.ownerPlayerId}`,
         systemId: fleet.systemId,
         targetSystemId: fleet.destinationSystemId,
-        colonizationCapacity: fleet.colonizationCapacity
+        colonizationCapacity: fleet.colonizationCapacity,
+        composition: fleet.composition,
+        movementRange: fleet.movementRange,
+        sensorRange: fleet.sensorRange,
+        attack: fleet.attack,
+        defense: fleet.defense,
+        fuelCapacity: fleet.fuelCapacity,
+        fuelUsePerHop: fleet.fuelUsePerHop
       }));
 
     return {
@@ -66,6 +73,7 @@ export function mapLiveUniverse(
       description: system.description,
       isCapital: system.isCapital === true,
       sensorRange: Math.max(0, Number(system.sensorRange ?? (system.ownerPlayerId === null ? 0 : 1))),
+      installations: Array.isArray(system.installations) ? system.installations : [],
       visibilityState: system.visibilityState ?? 'visible',
       lastSeenTurn: system.lastSeenTurn,
       isYours: system.ownerPlayerId === currentPlayerId

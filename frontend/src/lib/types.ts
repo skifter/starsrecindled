@@ -1,5 +1,5 @@
 export type AppScreen = 'login' | 'lobby' | 'game';
-export type GameSection = 'players' | 'galaxy' | 'planets' | 'fleets' | 'research' | 'diplomacy' | 'report';
+export type GameSection = 'players' | 'galaxy' | 'planets' | 'fleets' | 'designs' | 'research' | 'diplomacy' | 'report';
 export type Owner = 'player' | 'neutral' | 'crimson' | 'violet' | 'amber';
 export type AccountAuthMode = 'web' | 'direct';
 export type VisibilityState = 'visible' | 'explored';
@@ -99,6 +99,13 @@ export interface FleetSummary {
   systemId?: string;
   targetSystemId?: string;
   colonizationCapacity?: number;
+  composition?: FleetCompositionEntry[];
+  movementRange?: number;
+  sensorRange?: number;
+  attack?: number;
+  defense?: number;
+  fuelCapacity?: number;
+  fuelUsePerHop?: number;
 }
 
 export interface StarSystem {
@@ -123,6 +130,7 @@ export interface StarSystem {
   description: string;
   isCapital?: boolean;
   sensorRange?: number;
+  installations?: PlanetInstallation[];
   visibilityState?: VisibilityState;
   lastSeenTurn?: number;
 }
@@ -143,6 +151,10 @@ export interface ProductionOrder {
   systemId: string;
   item: string;
   quantity: number;
+  modelId?: string;
+  modelName?: string;
+  modelVersion?: number;
+  productionKind?: 'ship' | 'installation' | 'legacy';
 }
 
 export interface ResearchOrder {
@@ -161,6 +173,76 @@ export interface ResearchTechnology {
   cost: number;
   prerequisites: string[];
   effect: string;
+  kind?: 'hardware' | 'applied';
+  unlocks?: string[];
+  globalEffects?: string[];
+}
+
+export type ModelCategory = 'hull' | 'engine' | 'scanner' | 'weapon' | 'armor' | 'installation';
+
+export interface TechnologyModel {
+  id: string;
+  category: ModelCategory;
+  family: string;
+  name: string;
+  version: number;
+  requires: string[];
+  unlocked: boolean;
+  description: string;
+  stats: Record<string, number>;
+  upgradeFrom?: string | null;
+  upgradeCost?: number | null;
+}
+
+export interface ShipDesignComponentRef {
+  category: Exclude<ModelCategory, 'installation'>;
+  modelId: string;
+  name: string;
+  version: number;
+}
+
+export interface ShipDesign {
+  id: string;
+  name: string;
+  family: string;
+  generation: number;
+  components: ShipDesignComponentRef[];
+  stats: {
+    movementRange: number;
+    sensorRange: number;
+    attack: number;
+    defense: number;
+    fuelCapacity: number;
+    fuelUsePerHop: number;
+  };
+  industryCost: number;
+  batchSize: number;
+  unlocked: boolean;
+  current: boolean;
+  obsolete?: boolean;
+}
+
+export interface PlanetInstallation {
+  family: string;
+  modelId: string;
+  name: string;
+  version: number;
+  installedTurn?: number;
+}
+
+export interface ModelCatalog {
+  components: TechnologyModel[];
+  installations: TechnologyModel[];
+  designs: ShipDesign[];
+}
+
+export interface FleetCompositionEntry {
+  designId: string;
+  designName: string;
+  generation: number;
+  quantity: number;
+  components?: ShipDesignComponentRef[];
+  stats?: ShipDesign['stats'];
 }
 
 export interface ResearchModifiers {
@@ -170,6 +252,7 @@ export interface ResearchModifiers {
   planetDefensePercent: number;
   defenseGridAmount: number;
   industryIncomePercent: number;
+  fuelEfficiencyPercent: number;
 }
 
 export interface PlayerResearchState {
@@ -198,6 +281,13 @@ export interface ServerFleetState {
   role: string;
   destinationSystemId?: string;
   colonizationCapacity?: number;
+  composition?: FleetCompositionEntry[];
+  movementRange?: number;
+  sensorRange?: number;
+  attack?: number;
+  defense?: number;
+  fuelCapacity?: number;
+  fuelUsePerHop?: number;
 }
 
 export interface ServerSystemState {
@@ -218,6 +308,7 @@ export interface ServerSystemState {
   description: string;
   isCapital?: boolean;
   sensorRange?: number;
+  installations?: PlanetInstallation[];
   visibilityState?: VisibilityState;
   lastSeenTurn?: number;
 }
@@ -290,6 +381,9 @@ export interface TurnReportProduction {
   systemId: string;
   item: string;
   industryCost: number;
+  modelId?: string;
+  modelVersion?: number;
+  productionKind?: 'ship' | 'installation' | 'legacy';
 }
 
 export interface TurnReportResearchCompleted {
@@ -299,6 +393,8 @@ export interface TurnReportResearchCompleted {
   tier: number;
   cost: number;
   effect: string;
+  kind?: 'hardware' | 'applied';
+  unlocks?: string[];
 }
 
 export interface TurnReportResearchProgress {
@@ -348,6 +444,7 @@ export interface AccountTurnStatus extends Record<string, unknown> {
   visibility?: AccountVisibility;
   research?: PlayerResearchState;
   research_catalog?: ResearchTechnology[];
+  model_catalog?: ModelCatalog;
   previous_report?: PreviousTurnReport | null;
   players: AccountTurnStatusPlayer[];
   you: AccountTurnStatusYou;

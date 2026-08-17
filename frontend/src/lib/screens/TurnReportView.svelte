@@ -7,6 +7,7 @@
   export let onOpenSystem: (system: StarSystem) => void = () => {};
   export let onOpenOrders: () => void = () => {};
   export let onOpenResearch: () => void = () => {};
+  export let onOpenDesigns: () => void = () => {};
 
   $: data = report?.data ?? null;
   $: movements = data?.movements ?? [];
@@ -158,7 +159,7 @@
             <article class="event research-event">
               <Icon name="research" size={18}/>
               <div><strong>{technology.name} completed</strong><p>{technology.effect} · Tier {technology.tier} · {technology.cost.toLocaleString('en-US')} RP</p></div>
-              <button onclick={onOpenResearch}>Open research</button>
+              <button onclick={technology.kind === 'hardware' ? onOpenDesigns : onOpenResearch}>{technology.kind === 'hardware' ? 'Open designs' : 'Open research'}</button>
             </article>
           {/each}
         </div>
@@ -179,7 +180,7 @@
         <div class="events">
           {#each productions as production}
             <article class="event success-event">
-              <Icon name={production.item === 'Scout Wing' ? 'fleet' : production.item === 'Defense Grid' ? 'shield' : production.item === 'Deep Space Array' ? 'target' : 'industry'} size={18}/>
+              <Icon name={production.productionKind === 'ship' || production.modelId?.startsWith('scout-') ? 'fleet' : production.modelId?.startsWith('defense_grid') ? 'shield' : production.modelId?.startsWith('deep_space_array') ? 'target' : 'industry'} size={18}/>
               <div><strong>{production.item}</strong><p>{systemName(production.systemId)} · {production.industryCost.toLocaleString('en-US')} industry</p></div>
               <button onclick={() => open(production.systemId)}>Open system</button>
             </article>

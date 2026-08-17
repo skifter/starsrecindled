@@ -6,6 +6,7 @@ namespace Bellcom\StarsTurnBundle\Controller;
 
 use Bellcom\StarsTurnBundle\Application\TurnSubmissionService;
 use Bellcom\StarsTurnBundle\Domain\ResearchCatalog;
+use Bellcom\StarsTurnBundle\Domain\TechnologyModelCatalog;
 use Bellcom\StarsTurnBundle\Repository\PlayerTurnRepository;
 use Bellcom\StarsTurnBundle\Repository\TurnRepository;
 use Bellcom\StarsTurnBundle\Security\PlayerTokenAuthenticator;
@@ -61,7 +62,7 @@ final class TurnApiController extends AbstractController
             throw new \LogicException('Den autentificerede spiller mangler id.');
         }
 
-        $initialState = $turn->getInitialState();
+        $initialState = TechnologyModelCatalog::normalizeState($turn->getInitialState());
         $history = $this->visibilityHistory($gameId, $turnNumber);
         $projection = $this->visibility->project($initialState, $playerId, $history, $turnNumber);
         $previousReport = $this->previousPublishedReport($gameId, $turnNumber, $playerId);
@@ -92,6 +93,7 @@ final class TurnApiController extends AbstractController
             ],
             'research' => $research,
             'research_catalog' => ResearchCatalog::publicCatalog(),
+            'model_catalog' => TechnologyModelCatalog::publicForPlayer($initialState, $playerId),
             'previous_report' => $previousReport,
             'players' => $players,
             'you' => [
@@ -119,7 +121,7 @@ final class TurnApiController extends AbstractController
                 return $this->json(['error' => 'Feltet orders skal være et JSON-objekt.'], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
             $playerId = $player->getId() ?? throw new \LogicException('Den autentificerede spiller mangler id.');
-            $orders = $this->validateResearchOrders($orders, $turn->getInitialState(), $playerId);
+            $orders = $this->validateOrders($orders, $turn->getInitialState(), $playerId);
             $this->submissionService->saveDraft($player, $turn, $orders);
         } catch (\InvalidArgumentException $exception) {
             return $this->json(['error' => $exception->getMessage()], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -148,7 +150,7 @@ final class TurnApiController extends AbstractController
                 return $this->json(['error' => 'Feltet orders skal være et JSON-objekt.'], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
             $playerId = $player->getId() ?? throw new \LogicException('Den autentificerede spiller mangler id.');
-            $orders = $this->validateResearchOrders($orders, $turn->getInitialState(), $playerId);
+            $orders = $this->validateOrders($orders, $turn->getInitialState(), $playerId);
             $outcome = $this->submissionService->submit($player, $turn, $orders);
         } catch (\InvalidArgumentException $exception) {
             return $this->json(['error' => $exception->getMessage()], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -191,6 +193,64 @@ final class TurnApiController extends AbstractController
         $orders['production'] = is_array($orders['production'] ?? null) ? array_values($orders['production']) : [];
         $orders['research'] = is_array($orders['research'] ?? null) ? array_values($orders['research']) : [];
 
+        return $orders;
+    }
+
+    /** @param array<string,mixed> $orders @param array<string,mixed> $state @return array<string,mixed> */
+    private function validateOrders(array $orders, array $state, int $playerId): array
+    {
+        $state = TechnologyModelCatalog::normalizeState($state);
+        $orders = $this->validateResearchOrders($orders, $state, $playerId);
+        return $this->validateProductionOrders($orders, $state, $playerId);
+    }
+
+    /** @param array<string,mixed> $orders @param array<string,mixed> $state @return array<string,mixed> */
+    private function validateProductionOrders(array $orders, array $state, int $playerId): array
+    {
+        if (!array_key_exists('production', $orders) || $orders['production'] === null) {
+            $orders['production'] = [];
+            return $orders;
+        }
+        if (!is_array($orders['production'])) {
+            throw new \InvalidArgumentException('Production orders must be an array.');
+        }
+
+        $catalog = TechnologyModelCatalog::publicForPlayer($state, $playerId);
+        $allowed = [];
+        foreach ($catalog['designs'] as $design) {
+            if (is_array($design) && ($design['unlocked'] ?? true) === true && is_string($design['id'] ?? null)) {
+                $allowed[$design['id']] = true;
+            }
+        }
+        foreach ($catalog['installations'] as $model) {
+            if (is_array($model) && ($model['unlocked'] ?? false) === true && is_string($model['id'] ?? null)) {
+                $allowed[$model['id']] = true;
+            }
+        }
+
+        $normalized = [];
+        foreach (array_values($orders['production']) as $entry) {
+            if (!is_array($entry)) {
+                throw new \InvalidArgumentException('Each production order must be a JSON object.');
+            }
+            $systemId = is_string($entry['systemId'] ?? null) ? trim($entry['systemId']) : '';
+            $item = is_string($entry['item'] ?? null) ? trim($entry['item']) : '';
+            $modelId = is_string($entry['modelId'] ?? null) ? trim($entry['modelId']) : '';
+            if ($systemId === '' || $item === '') {
+                throw new \InvalidArgumentException('Production orders require systemId and item.');
+            }
+            if ($modelId !== '' && !isset($allowed[$modelId])) {
+                throw new \InvalidArgumentException(sprintf('Production model %s is unknown or not unlocked.', $modelId));
+            }
+            $entry['systemId'] = $systemId;
+            $entry['item'] = $item;
+            $entry['quantity'] = max(1, min(10, (int) ($entry['quantity'] ?? 1)));
+            if ($modelId !== '') {
+                $entry['modelId'] = $modelId;
+            }
+            $normalized[] = $entry;
+        }
+        $orders['production'] = $normalized;
         return $orders;
     }
 

@@ -10,6 +10,7 @@
   export let selectedFleetId = '';
   export let orders: PlayerOrders = { fleets: [], production: [] };
   export let editableTurn = false;
+  export let fuelEfficiencyPercent = 0;
   export let onLocate: (fleet: FleetSummary, system: StarSystem) => void = () => {};
   export let onPlanRoute: (fleet: FleetSummary, system: StarSystem) => void = () => {};
 
@@ -48,14 +49,14 @@
     <div>
       <p class="eyebrow">Live fleet command</p>
       <h1>Fleets</h1>
-      <p class="intro">Select a fleet to locate it on the galaxy map, or set a waypoint directly from this overview. Enemy fleets are only listed when your sensors currently detect them.</p>
+      <p class="intro">Every fleet keeps the ship generations and components it was built with. New research unlocks new models; it does not retrofit fleets already in service.</p>
     </div>
-    <div class="fleet-summary"><span><strong>{ownRows.length}</strong><small>your fleets</small></span><span><strong>{totalShips.toLocaleString('en-US')}</strong><small>ships</small></span><span><strong>{sensorSystemCount}</strong><small>systems scanned</small></span></div>
+    <div class="fleet-summary"><span><strong>{ownRows.length}</strong><small>your fleets</small></span><span><strong>{totalShips.toLocaleString('en-US')}</strong><small>ships</small></span><span><strong>{sensorSystemCount}</strong><small>systems scanned</small></span><span><strong>{fuelEfficiencyPercent}%</strong><small>applied fuel saving</small></span></div>
   </header>
 
   <div class="fleet-table panel-cut">
     <div class="fleet-row table-head">
-      <span>Fleet</span><span>Location</span><span>Ships</span><span>Order</span><span>Actions</span>
+      <span>Fleet</span><span>Location</span><span>Ships / model</span><span>Order / capability</span><span>Actions</span>
     </div>
 
     {#if ownRows.length > 0}
@@ -67,11 +68,11 @@
             <span><strong>{row.fleet.name}</strong><small>{row.fleet.role}</small></span>
           </button>
           <button class="location" onclick={() => onLocate(row.fleet, row.system)}><strong>{row.system.name}</strong><small>{row.system.ownerPlayerId === currentPlayerId ? 'Your colony' : row.system.ownerPlayerId === null ? 'Unclaimed' : row.system.ownerLabel}</small></button>
-          <span class="ships"><strong>{row.fleet.ships.toLocaleString('en-US')}</strong><small>{(row.fleet.colonizationCapacity ?? 0) > 0 ? `Colony module ×${row.fleet.colonizationCapacity}` : 'ships'}</small></span>
+          <span class="ships"><strong>{row.fleet.ships.toLocaleString('en-US')}</strong><small>{row.fleet.composition?.map((entry) => `${entry.designName} ×${entry.quantity}`).join(' · ') ?? ((row.fleet.colonizationCapacity ?? 0) > 0 ? `Colony module ×${row.fleet.colonizationCapacity}` : 'legacy ships')}</small></span>
           <span class="order-state">
             {#if order?.action === 'move'}<strong>Waypoint</strong><small>→ {targetName(order)}</small>
             {:else if order?.action === 'colonize'}<strong>Colonize</strong><small>{targetName(order)}</small>
-            {:else}<strong>Idle</strong><small>No draft order</small>{/if}
+            {:else}<strong>Idle</strong><small>No draft order</small>{/if}<small class="capability">SPD {row.fleet.movementRange ?? 1} · SEN {row.fleet.sensorRange ?? 0} · ATK {row.fleet.attack ?? 0} · DEF {row.fleet.defense ?? 0}</small>
           </span>
           <span class="actions"><button onclick={() => onLocate(row.fleet, row.system)}><Icon name="galaxy" size={15}/>Locate</button><button class="route" disabled={!editableTurn} onclick={() => onPlanRoute(row.fleet, row.system)}><Icon name="target" size={15}/>Waypoint</button></span>
         </article>
@@ -83,7 +84,7 @@
 
   <section class="other-fleets">
     <div class="other-title">
-      <div><h2>Other visible fleets</h2><p>Colonies scan their own system and all directly connected systems. Scout and Exploration fleets do the same. Other fleet types only reveal the system they occupy.</p></div>
+      <div><h2>Other visible fleets</h2><p>Visibility follows the sensor hardware actually installed on colonies and fleets. Better scanner models extend detection; fleets outside current coverage are not sent to this client.</p></div>
       <span>{visibleOtherRows.length} detected</span>
     </div>
     {#if visibleOtherRows.length > 0}
@@ -91,7 +92,7 @@
         {#each visibleOtherRows as row}
           <button class="other-card" style={`--fleet-color:${fleetColor(row.fleet)}`} onclick={() => onLocate(row.fleet, row.system)}>
             <span class="fleet-icon"><Icon name="fleet" size={18}/></span>
-            <span><strong>{row.fleet.name}</strong><small>{ownerName(row.fleet)} · {row.system.name} · {row.fleet.ships.toLocaleString('en-US')} ships</small></span>
+            <span><strong>{row.fleet.name}</strong><small>{ownerName(row.fleet)} · {row.system.name} · {row.fleet.ships.toLocaleString('en-US')} ships{row.fleet.composition?.[0] ? ` · ${row.fleet.composition[0].designName}` : ''}</small></span>
           </button>
         {/each}
       </div>

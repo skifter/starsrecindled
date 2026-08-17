@@ -8,6 +8,7 @@
   import PlanetsView from './PlanetsView.svelte';
   import TurnReportView from './TurnReportView.svelte';
   import ResearchView from './ResearchView.svelte';
+  import DesignsView from './DesignsView.svelte';
   import SectionViews from '../components/SectionViews.svelte';
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
@@ -32,6 +33,7 @@
     { id: 'galaxy', label: 'Galaxy', icon: 'galaxy' },
     { id: 'planets', label: 'Planets', icon: 'planet' },
     { id: 'fleets', label: 'Fleets', icon: 'fleet' },
+    { id: 'designs', label: 'Designs', icon: 'build' },
     { id: 'players', label: 'Players', icon: 'user' },
     { id: 'research', label: 'Research', icon: 'research' },
     { id: 'diplomacy', label: 'Diplomacy', icon: 'diplomacy' },
@@ -89,13 +91,12 @@
   $: colonizerInSelected = selectedSystem?.fleets.find((fleet) =>
     fleet.ownerPlayerId === connection.playerId && colonyCapacity(fleet) > 0
   ) ?? null;
-  $: movementRange = demoMode ? 1 : Math.max(1, status?.research?.modifiers.fleetMovementRange ?? 1);
+  $: movementRange = demoMode ? 1 : Math.max(1, planningFleetCurrent?.movementRange ?? 1);
   $: validDestinationIds = planningFleetCurrent
     ? systemsWithinRange(planningFleetCurrent.systemId ?? '', movementRange)
     : [];
   $: researchProjectId = orders.research?.[0]?.technologyId ?? orders.research?.[0]?.field ?? status?.research?.activeTechnologyId ?? '';
   $: researchProjectName = status?.research_catalog?.find((technology) => technology.id === researchProjectId)?.name ?? 'Choose technology';
-  $: industryBonusPercent = Math.max(0, status?.research?.modifiers.industryIncomePercent ?? 0);
   $: playerIds = (status?.players ?? []).map((player) => player.id);
   $: currentPlayerOwner = ownerForPlayerId(connection.playerId, playerIds);
   $: currentPlayerColor = OWNER_COLORS[currentPlayerOwner];
@@ -216,24 +217,45 @@
     return false;
   }
 
-  function productionCost(item: string): number {
+  function productionCost(item: string, modelId = ''): number {
+    if (modelId) {
+      const design = status?.model_catalog?.designs.find((entry) => entry.id === modelId);
+      if (design) return design.industryCost;
+      const installation = status?.model_catalog?.installations.find((entry) => entry.id === modelId);
+      if (installation) return installation.stats.industryCost ?? 0;
+    }
     return PRODUCTION_COSTS[item] ?? 0;
+  }
+
+  function preferredInstallation(family: string) {
+    return [...(status?.model_catalog?.installations ?? [])]
+      .filter((model) => model.family === family && model.unlocked)
+      .sort((a, b) => b.version - a.version)[0] ?? null;
+  }
+
+  function currentScoutDesign() {
+    return status?.model_catalog?.designs.find((design) => design.current)
+      ?? status?.model_catalog?.designs[0]
+      ?? null;
+  }
+
+  function hasInstallation(system: StarSystem | null, family: string): boolean {
+    return (system?.installations ?? []).some((installation) => installation.family === family);
   }
 
   function projectedIndustry(system: StarSystem): number {
     const industry = system.resources.find((resource) => resource.id === 'industry');
     if (!industry) return 0;
-    const effectiveIncome = industry.income + Math.floor(industry.income * industryBonusPercent / 100);
-    return industry.value + effectiveIncome;
+    return industry.value + industry.income;
   }
 
   function reservedIndustry(systemId: string): number {
     return (orders.production ?? [])
       .filter((order) => order.systemId === systemId)
-      .reduce((sum, order) => sum + productionCost(order.item) * Math.max(1, order.quantity), 0);
+      .reduce((sum, order) => sum + productionCost(order.item, order.modelId ?? '') * Math.max(1, order.quantity), 0);
   }
 
-  function addProductionForSystem(system: StarSystem, item: string): void {
+  function addProductionForSystem(system: StarSystem, item: string, modelId = ''): void {
     if (!demoMode) {
       if (!editableTurn) {
         localNotice = 'Reopen the turn before changing production orders.';
@@ -244,15 +266,7 @@
         return;
       }
 
-      const queuedSensorUpgrades = (orders.production ?? [])
-        .filter((order) => order.systemId === system.id && order.item === 'Deep Space Array')
-        .reduce((sum, order) => sum + Math.max(1, order.quantity), 0);
-      if (item === 'Deep Space Array' && Math.max(1, Math.round(system.sensorRange ?? 1)) + queuedSensorUpgrades >= 3) {
-        showNotice(`${system.name} already has maximum sensor range reached or queued.`);
-        return;
-      }
-
-      const cost = productionCost(item);
+      const cost = productionCost(item, modelId);
       const remaining = projectedIndustry(system) - reservedIndustry(system.id);
       if (cost > 0 && remaining < cost) {
         localNotice = `${system.name} needs ${cost.toLocaleString('en-US')} industry for ${item}; ${Math.max(0, remaining).toLocaleString('en-US')} remains after queued builds.`;
@@ -261,13 +275,13 @@
     }
 
     const existing = (orders.production ?? []).find(
-      (order) => order.systemId === system.id && order.item === item
+      (order) => order.systemId === system.id && order.item === item && (order.modelId ?? '') === modelId
     );
     const nextProduction = existing
       ? (orders.production ?? []).map((order) =>
           order === existing ? { ...order, quantity: order.quantity + 1 } : order
         )
-      : [...(orders.production ?? []), { systemId: system.id, item, quantity: 1 }];
+      : [...(orders.production ?? []), { systemId: system.id, item, quantity: 1, ...(modelId ? { modelId } : {}) }];
 
     updateOrders(
       { ...orders, production: nextProduction },
@@ -275,10 +289,20 @@
     );
   }
 
-  function addProduction(item: string): void {
+  function addProduction(item: string, modelId = ''): void {
     const system = selectedSystem;
     if (!system) return;
-    addProductionForSystem(system, item);
+    if (!modelId && item === 'Scout Wing') {
+      const design = currentScoutDesign();
+      addProductionForSystem(system, design?.name ?? item, design?.id ?? '');
+      return;
+    }
+    if (!modelId && item === 'Orbital Factory') {
+      const model = preferredInstallation('orbital_factory');
+      addProductionForSystem(system, model?.name ?? item, model?.id ?? '');
+      return;
+    }
+    addProductionForSystem(system, item, modelId);
   }
 
   function removeProduction(systemId: string, item: string): void {
@@ -359,7 +383,8 @@
     planningFleet = fleet;
     activeSection = 'galaxy';
     rightPanelOpen = true;
-    localNotice = `Planning ${fleet.name}: choose one of the highlighted systems within ${movementRange} hop${movementRange === 1 ? '' : 's'}.`;
+    const fleetRange = demoMode ? 1 : Math.max(1, fleet.movementRange ?? 1);
+    localNotice = `Planning ${fleet.name}: choose one of the highlighted systems within ${fleetRange} hop${fleetRange === 1 ? '' : 's'}.`;
   }
 
   function addWaypoint(action: 'move' | 'colonize' = 'move'): void {
@@ -474,7 +499,7 @@
     <button class="top-icon" aria-label="Exit to menu" onclick={onExit}><Icon name="power" /></button>
   </header>
 
-  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets' || activeSection === 'research' || activeSection === 'report'}>
+  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'planets' || activeSection === 'fleets' || activeSection === 'designs' || activeSection === 'research' || activeSection === 'report'}>
     <nav class="sidebar" class:open={sidebarOpen}>
       {#each navigation as item}
         <button class:active={activeSection === item.id} onclick={() => { activeSection = item.id; sidebarOpen = false; }}><Icon name={item.icon} size={25}/><span>{item.label}</span></button>
@@ -509,7 +534,7 @@
           currentPlayerId={connection.playerId}
           {orders}
           {editableTurn}
-          researchModifiers={status?.research?.modifiers ?? null}
+          modelCatalog={status?.model_catalog ?? null}
           ownerColor={currentPlayerColor}
           onLocate={openPlanet}
           onQueueBuild={addProductionForSystem}
@@ -524,31 +549,35 @@
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           {orders}
           {editableTurn}
+          fuelEfficiencyPercent={status?.research?.modifiers.fuelEfficiencyPercent ?? 0}
           onLocate={(fleet, system) => selectFleet(fleet, system, true)}
           onPlanRoute={beginWaypointForFleet}
         />
+      {:else if activeSection === 'designs' && !demoMode}
+        <DesignsView catalog={status?.model_catalog ?? null}/>
       {:else if activeSection === 'research' && !demoMode}
         <ResearchView
           research={status?.research ?? null}
           catalog={status?.research_catalog ?? []}
+          modelCatalog={status?.model_catalog ?? null}
           {orders}
           {editableTurn}
           onResearch={prioritizeResearch}
         />
       {:else if activeSection === 'report' && !demoMode}
-        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet} onOpenOrders={openTechnical} onOpenResearch={() => (activeSection = 'research')}/>
+        <TurnReportView report={status?.previous_report ?? null} systems={gameSystems} onOpenSystem={openPlanet} onOpenOrders={openTechnical} onOpenResearch={() => (activeSection = 'research')} onOpenDesigns={() => (activeSection = 'designs')}/>
       {:else if !demoMode}
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>
           <h2>{navigation.find((item) => item.id === activeSection)?.label ?? activeSection}</h2>
-          <p>This section is not connected to the live game state yet. Live gameplay currently includes fleet management, multi-hop movement, colonization, production, research and sensor intelligence.</p>
+          <p>This section is not connected to the live game state yet. Live gameplay currently includes fleet management, versioned ship models, colonization, production, research and sensor intelligence.</p>
         </section>
       {:else}
         <SectionViews section={activeSection} {status} onSelectSystem={selectSystem} onResearch={prioritizeResearch}/>
       {/if}
     </main>
 
-    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && activeSection !== 'research' && activeSection !== 'report' && selectedSystem}
+    {#if activeSection !== 'players' && activeSection !== 'planets' && activeSection !== 'fleets' && activeSection !== 'designs' && activeSection !== 'research' && activeSection !== 'report' && selectedSystem}
       <div class="right-wrap" class:open={rightPanelOpen}>
         <button class="panel-toggle" aria-label="Toggle detail panel" onclick={() => (rightPanelOpen = !rightPanelOpen)}><Icon name={rightPanelOpen ? 'chevron-right' : 'chevron-left'} size={17}/></button>
         <DetailPanel
@@ -557,7 +586,7 @@
           currentPlayerId={connection.playerId}
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)}
-          researchModifiers={status?.research?.modifiers ?? null}
+          modelCatalog={status?.model_catalog ?? null}
           productionOrders={(orders.production ?? []).filter((order) => order.systemId === selectedSystem?.id)}
           onRemoveBuild={removeProductionFromSelected}
           onBuild={addProduction}
@@ -571,7 +600,7 @@
   <footer class="command-bar">
     <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? ownFleetInSelected.name : 'Select a fleet'}</small></span></button>
     <button onclick={() => addWaypoint('colonize')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== null || !colonizerInSelected)) || (demoMode && selectedSystem.owner !== 'neutral')}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode ? 'Establish colony' : selectedSystem?.ownerPlayerId !== null ? 'Select unclaimed system' : colonizerInSelected ? `${colonyCapacity(colonizerInSelected)} colony module` : 'Requires colony module'}</small></span></button>
-    <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId)) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : selectedSystem?.ownerPlayerId === connection.playerId ? 'Queue orbital factory' : 'Select your colony'}</small></span></button>
+    <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId || hasInstallation(selectedSystem, 'orbital_factory'))) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : hasInstallation(selectedSystem, 'orbital_factory') ? 'Factory installed · upgrade in 0.7.2' : selectedSystem?.ownerPlayerId === connection.playerId ? (preferredInstallation('orbital_factory')?.name ?? 'Queue orbital factory') : 'Select your colony'}</small></span></button>
     <button onclick={() => (activeSection = 'research')}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : researchProjectName}</small></span></button>
     {#if ownSubmitted && serverTurnStatus === 'open' && !demoMode}
       <button class="draft-button" disabled={busy} onclick={onReopen}><Icon name="load" size={24}/><span><strong>Reopen turn</strong><small>Continue editing orders</small></span></button>
