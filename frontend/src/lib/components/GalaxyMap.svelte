@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
+  import { buildCoverageEnvelope, buildEmpireInfluence } from '../territory';
   import type { AccountTurnStatusPlayer, FleetSummary, Owner, RouteLink, StarSystem } from '../types';
 
   export let systems: StarSystem[] = [];
@@ -21,7 +22,16 @@
   $: playerIds = players.map((player) => player.id);
   $: sensorSet = new Set(sensorSystemIds);
   $: adjacency = buildAdjacency();
-  $: empireTerritories = buildEmpireTerritories();
+  $: influenceResult = buildEmpireInfluence(systems, { width: 1000, height: 620, step: 12, minimumControl: 0.13, contestedRatio: 0.76 });
+  $: empireTerritories = influenceResult.territories.map((territory) => ({
+    ownerPlayerId: territory.empireId,
+    owner: ownerForPlayerId(territory.empireId, playerIds),
+    memory: territory.memory,
+    mixedIntel: territory.mixedIntel,
+    paths: territory.paths,
+    systemIds: territory.sourceSystemIds,
+  }));
+  $: contestedTerritoryPaths = influenceResult.contested.paths;
   $: sensorTerritories = buildSensorTerritories();
   $: visibleKnownCount = systems.filter((system) => system.visibilityState !== 'explored').length;
   $: memorySystemCount = systems.filter((system) => system.visibilityState === 'explored').length;
@@ -35,17 +45,6 @@
   let startPanX = 0;
   let startPanY = 0;
   let moved = false;
-
-  type Point = { x: number; y: number };
-  type TerritoryNode = Point & { r: number };
-  type EmpireTerritory = {
-    ownerPlayerId: number;
-    owner: Owner;
-    memory: boolean;
-    mixedIntel: boolean;
-    path: string;
-    systemIds: string[];
-  };
 
   type SensorTerritory = {
     path: string;
@@ -90,234 +89,22 @@
     return components;
   }
 
-  function ownedColonyComponents(ownerPlayerId: number): string[][] {
-    const colonyIds = systems
-      .filter((system) => system.ownerPlayerId === ownerPlayerId)
-      .map((system) => system.id);
-    return connectedComponents(colonyIds);
-  }
-
   function sensorCoverageComponents(): string[][] {
     return connectedComponents([...sensorSet].filter((id) => byId.has(id)));
   }
 
-  function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
-  }
-
-  function colonyInfluenceRadius(system: StarSystem): number {
-    const base = system.isCapital ? 52 : 36;
-    const populationBonus = clamp((system.population ?? 0) * 3.1, 0, 18);
-    const developmentBonus = clamp((system.development ?? 0) * 0.085, 0, 12);
-    const defenseBonus = clamp(Math.sqrt(Math.max(0, system.defenses ?? 0)) * 0.55, 0, 18);
-    const sensorBonus = clamp(Math.round(system.sensorRange ?? 1), 0, 3) * 6;
-    return clamp(base + populationBonus + developmentBonus + defenseBonus + sensorBonus, 34, 88);
-  }
-
-  function componentLinks(ownerPlayerId: number, component: string[]): [StarSystem, StarSystem][] {
-    const allowed = new Set(component);
-    const seen = new Set<string>();
-    const links: [StarSystem, StarSystem][] = [];
-
-    for (const route of routes) {
-      if (!allowed.has(route.from) || !allowed.has(route.to)) continue;
-      const a = byId.get(route.from);
-      const b = byId.get(route.to);
-      if (!a || !b || a.ownerPlayerId !== ownerPlayerId || b.ownerPlayerId !== ownerPlayerId) continue;
-      const key = [a.id, b.id].sort().join('::');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      links.push([a, b]);
-    }
-
-    return links;
-  }
-
-  function sampleCircle(cloud: Point[], centerX: number, centerY: number, radius: number, samples = 18): void {
-    for (let i = 0; i < samples; i += 1) {
-      const angle = (Math.PI * 2 * i) / samples;
-      cloud.push({
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-      });
-    }
-  }
-
-  function buildInfluenceCloud(ownerPlayerId: number, component: string[]): { cloud: Point[]; centers: TerritoryNode[] } {
-    const colonies = component
-      .map((id) => byId.get(id))
-      .filter((system): system is StarSystem => system !== undefined && system.ownerPlayerId === ownerPlayerId);
-    const centers: TerritoryNode[] = colonies.map((system) => ({
-      x: system.x * 10,
-      y: system.y * 6.2,
-      r: colonyInfluenceRadius(system),
-    }));
-    const cloud: Point[] = [];
-
-    for (const center of centers) {
-      sampleCircle(cloud, center.x, center.y, center.r, 24);
-      sampleCircle(cloud, center.x, center.y, center.r * 0.65, 18);
-      cloud.push({ x: center.x, y: center.y });
-    }
-
-    for (const [fromSystem, toSystem] of componentLinks(ownerPlayerId, component)) {
-      const from = centers.find((entry) => entry.x === fromSystem.x * 10 && entry.y === fromSystem.y * 6.2);
-      const to = centers.find((entry) => entry.x === toSystem.x * 10 && entry.y === toSystem.y * 6.2);
-      if (!from || !to) continue;
-
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
-      const distance = Math.hypot(dx, dy) || 1;
-      const nx = -dy / distance;
-      const ny = dx / distance;
-      const bridgeBase = clamp(Math.min(from.r, to.r) * 0.48, 14, 30);
-
-      for (let step = 1; step <= 5; step += 1) {
-        const t = step / 6;
-        const cx = from.x + dx * t;
-        const cy = from.y + dy * t;
-        const spread = bridgeBase * (0.62 + Math.sin(Math.PI * t) * 0.48);
-        cloud.push({ x: cx, y: cy });
-        cloud.push({ x: cx + nx * spread, y: cy + ny * spread });
-        cloud.push({ x: cx - nx * spread, y: cy - ny * spread });
-        sampleCircle(cloud, cx, cy, spread * 0.62, 10);
-      }
-    }
-
-    return { cloud, centers };
-  }
-
-  function smoothDistances(distances: number[]): number[] {
-    let current = [...distances];
-    for (let pass = 0; pass < 3; pass += 1) {
-      current = current.map((_, index) => {
-        const previous2 = current[(index - 2 + current.length) % current.length];
-        const previous1 = current[(index - 1 + current.length) % current.length];
-        const self = current[index];
-        const next1 = current[(index + 1) % current.length];
-        const next2 = current[(index + 2) % current.length];
-        return previous2 * 0.12 + previous1 * 0.2 + self * 0.36 + next1 * 0.2 + next2 * 0.12;
-      });
-    }
-    return current;
-  }
-
-  function pointsToClosedSpline(points: Point[]): string {
-    if (points.length < 3) return '';
-    const firstMid = {
-      x: (points[0].x + points[points.length - 1].x) / 2,
-      y: (points[0].y + points[points.length - 1].y) / 2,
-    };
-    let path = `M ${firstMid.x.toFixed(1)} ${firstMid.y.toFixed(1)}`;
-    for (let index = 0; index < points.length; index += 1) {
-      const current = points[index];
-      const next = points[(index + 1) % points.length];
-      const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
-      path += ` Q ${current.x.toFixed(1)} ${current.y.toFixed(1)} ${mid.x.toFixed(1)} ${mid.y.toFixed(1)}`;
-    }
-    return `${path} Z`;
-  }
-
-  function territoryPath(ownerPlayerId: number, systemIds: string[]): string {
-    const { cloud, centers } = buildInfluenceCloud(ownerPlayerId, systemIds);
-    if (cloud.length === 0 || centers.length === 0) return '';
-
-    const weighted = centers.reduce(
-      (acc, center) => ({
-        x: acc.x + center.x * center.r,
-        y: acc.y + center.y * center.r,
-        weight: acc.weight + center.r,
-      }),
-      { x: 0, y: 0, weight: 0 }
-    );
-    const centroid = {
-      x: weighted.weight > 0 ? weighted.x / weighted.weight : centers[0].x,
-      y: weighted.weight > 0 ? weighted.y / weighted.weight : centers[0].y,
-    };
-
-    const bucketCount = 72;
-    const radial = Array.from({ length: bucketCount }, () => 0);
-    const fallback = Math.max(28, centers.reduce((sum, center) => sum + center.r, 0) / centers.length * 0.82);
-
-    for (const point of cloud) {
-      const dx = point.x - centroid.x;
-      const dy = point.y - centroid.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance === 0) continue;
-      const angle = (Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2);
-      const bucket = Math.round((angle / (Math.PI * 2)) * bucketCount) % bucketCount;
-      radial[bucket] = Math.max(radial[bucket], distance);
-    }
-
-    for (let index = 0; index < radial.length; index += 1) {
-      if (radial[index] > 0) continue;
-      let offset = 1;
-      while (offset < radial.length / 2) {
-        const before = radial[(index - offset + radial.length) % radial.length];
-        const after = radial[(index + offset) % radial.length];
-        if (before > 0 && after > 0) {
-          radial[index] = (before + after) / 2;
-          break;
-        }
-        if (before > 0) {
-          radial[index] = before;
-          break;
-        }
-        if (after > 0) {
-          radial[index] = after;
-          break;
-        }
-        offset += 1;
-      }
-      if (radial[index] === 0) radial[index] = fallback;
-    }
-
-    const smoothed = smoothDistances(radial);
-    const points = smoothed.map((distance, index) => {
-      const angle = (Math.PI * 2 * index) / bucketCount;
-      return {
-        x: centroid.x + Math.cos(angle) * distance,
-        y: centroid.y + Math.sin(angle) * distance,
-      };
-    });
-
-    return pointsToClosedSpline(points);
-  }
-
-  function buildEmpireTerritories(): EmpireTerritory[] {
-    const ownerIds = [...new Set(
-      systems
-        .map((system) => system.ownerPlayerId)
-        .filter((id): id is number => typeof id === 'number' && id > 0)
-    )];
-    const territories: EmpireTerritory[] = [];
-
-    for (const ownerPlayerId of ownerIds) {
-      for (const component of ownedColonyComponents(ownerPlayerId)) {
-        const colonies = component
-          .map((id) => byId.get(id))
-          .filter((system): system is StarSystem => Boolean(system));
-        if (colonies.length === 0) continue;
-        const path = territoryPath(ownerPlayerId, component);
-        if (!path) continue;
-        const exploredCount = colonies.filter((system) => system.visibilityState === 'explored').length;
-        territories.push({
-          ownerPlayerId,
-          owner: ownerForPlayerId(ownerPlayerId, playerIds),
-          memory: exploredCount === colonies.length,
-          mixedIntel: exploredCount > 0 && exploredCount < colonies.length,
-          path,
-          systemIds: component,
-        });
-      }
-    }
-
-    return territories;
-  }
-
   function buildSensorTerritories(): SensorTerritory[] {
     return sensorCoverageComponents()
-      .map((component) => ({ systemIds: component, path: territoryPath(currentPlayerId, component) }))
+      .map((component) => ({
+        systemIds: component,
+        path: buildCoverageEnvelope(
+          component
+            .map((id) => byId.get(id))
+            .filter((system): system is StarSystem => system !== undefined)
+            .map((system) => ({ x: system.x * 10, y: system.y * 6.2 })),
+          52,
+        ),
+      }))
       .filter((territory) => territory.path !== '');
   }
 
@@ -423,6 +210,10 @@
       <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       <filter id="territoryBlur"><feGaussianBlur stdDeviation="15"/></filter>
       <filter id="fogHoleBlur"><feGaussianBlur stdDeviation="24"/></filter>
+      <pattern id="contestedStripe" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+        <rect width="12" height="12" fill="#d7f0ff" fill-opacity=".012"/>
+        <rect width="2.2" height="12" fill="#ffd77a" fill-opacity=".11"/>
+      </pattern>
       <pattern id="starDust" width="90" height="72" patternUnits="userSpaceOnUse">
         <circle cx="8" cy="12" r=".8" fill="#d7efff" opacity=".55"/><circle cx="55" cy="35" r=".55" fill="#fff" opacity=".42"/><circle cx="83" cy="64" r=".7" fill="#9bcfff" opacity=".46"/><circle cx="30" cy="59" r=".4" fill="#fff" opacity=".36"/>
       </pattern>
@@ -448,20 +239,25 @@
         <path class="territory amber" d="M54 390 C180 363 328 420 354 548 C282 636 118 648 20 564 C1 491 15 435 54 390Z" />
       {:else}
         {#each empireTerritories as territory}
-          <path
-            class="empire-territory-aura"
-            class:memory={territory.memory}
-            class:mixed-intel={territory.mixedIntel}
-            style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
-            d={territory.path}
-          />
-          <path
-            class="empire-territory-fill"
-            class:memory={territory.memory}
-            class:mixed-intel={territory.mixedIntel}
-            style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
-            d={territory.path}
-          />
+          {#each territory.paths as path}
+            <path
+              class="empire-territory-aura"
+              class:memory={territory.memory}
+              class:mixed-intel={territory.mixedIntel}
+              style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
+              d={path}
+            />
+            <path
+              class="empire-territory-fill"
+              class:memory={territory.memory}
+              class:mixed-intel={territory.mixedIntel}
+              style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
+              d={path}
+            />
+          {/each}
+        {/each}
+        {#each contestedTerritoryPaths as path}
+          <path class="contested-territory" d={path} />
         {/each}
       {/if}
 
@@ -562,14 +358,16 @@
 
       {#if liveMode}
         {#each empireTerritories as territory}
-          <path
-            class="empire-territory-border"
-            class:memory={territory.memory}
-            class:mixed-intel={territory.mixedIntel}
-            class:own={territory.ownerPlayerId === currentPlayerId}
-            style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
-            d={territory.path}
-          />
+          {#each territory.paths as path}
+            <path
+              class="empire-territory-border"
+              class:memory={territory.memory}
+              class:mixed-intel={territory.mixedIntel}
+              class:own={territory.ownerPlayerId === currentPlayerId}
+              style={`--territory-color:${OWNER_COLORS[territory.owner]}`}
+              d={path}
+            />
+          {/each}
         {/each}
       {/if}
     </g>
@@ -609,7 +407,12 @@
           {/each}
         {/if}
         {#each empireTerritories as territory}
-          <path class="mini-territory-fill" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={territory.path} transform="scale(.1)"/>
+          {#each territory.paths as path}
+            <path class="mini-territory-fill" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={path} transform="scale(.1)"/>
+          {/each}
+        {/each}
+        {#each contestedTerritoryPaths as path}
+          <path class="mini-contested-territory" d={path} transform="scale(.1)"/>
         {/each}
         {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
           {@const miniRange = sensorRange(system)}
@@ -618,7 +421,9 @@
         {/each}
         <rect class="mini-fog" x="-10" y="-10" width="120" height="90" mask="url(#miniFogMask)"/>
         {#each empireTerritories as territory}
-          <path class="mini-territory-border" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={territory.path} transform="scale(.1)"/>
+          {#each territory.paths as path}
+            <path class="mini-territory-border" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={path} transform="scale(.1)"/>
+          {/each}
         {/each}
       {:else}
         <path class="mini player" d="M10 15Q38 3 58 23T48 58Q20 64 7 42Z"/><path class="mini crimson" d="M38 2Q68-2 72 17Q59 25 43 16Z"/><path class="mini violet" d="M62 12Q96 11 99 42Q88 67 61 55Z"/><path class="mini amber" d="M4 45Q26 39 36 67Q11 76 1 58Z"/>
@@ -644,7 +449,7 @@
         </span>
       {/each}
       <span class="legend-entry unclaimed-entry"><i></i>Unclaimed</span>
-      <span class="legend-hint"><b>border</b> owned connected colonies · <b>layers</b> sensor coverage · <b>faded</b> last known</span>
+      <span class="legend-hint"><b>border</b> sphere of influence · <b>hatched</b> contested · <b>layers</b> sensor coverage · <b>faded</b> last known</span>
     {:else}
       <span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span>
     {/if}
@@ -657,7 +462,7 @@
   .galaxy-map.dragging>svg { cursor:grabbing }
   .territory { fill-opacity:.035;stroke-width:1.3;stroke-dasharray:5 4 }
   .territory.player { fill:#37bfff;stroke:#37bfff }.territory.crimson { fill:#ff544f;stroke:#ff544f }.territory.violet { fill:#bd55ed;stroke:#bd55ed }.territory.amber { fill:#e7a72c;stroke:#e7a72c }
-  .empire-territory-aura{fill:var(--territory-color);fill-opacity:.02;stroke:none;filter:url(#territoryBlur);pointer-events:none}.empire-territory-aura.memory{fill-opacity:.008}.empire-territory-aura.mixed-intel{fill-opacity:.014}.empire-territory-fill{fill:var(--territory-color);fill-opacity:.055;stroke:none;pointer-events:none;filter:drop-shadow(0 0 16px color-mix(in srgb,var(--territory-color) 20%,transparent))}.empire-territory-fill.memory{fill-opacity:.016}.empire-territory-fill.mixed-intel{fill-opacity:.03}.empire-territory-border{fill:none;stroke:var(--territory-color);stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.76;pointer-events:none;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--territory-color) 38%,transparent))}.empire-territory-border.own{stroke-width:2.05;stroke-opacity:.9}.empire-territory-border.memory{stroke-opacity:.28;stroke-dasharray:6 7;filter:none}.empire-territory-border.mixed-intel{stroke-opacity:.5;stroke-dasharray:10 5}.sensor-coverage-fill{fill:var(--sensor-color);fill-opacity:.028;stroke:none;pointer-events:none}.sensor-coverage-border{fill:none;stroke:var(--sensor-color);stroke-width:1.1;stroke-dasharray:3 5;stroke-opacity:.42;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--sensor-color) 20%,transparent))}
+  .empire-territory-aura{fill:var(--territory-color);fill-opacity:.02;stroke:none;filter:url(#territoryBlur);pointer-events:none}.empire-territory-aura.memory{fill-opacity:.008}.empire-territory-aura.mixed-intel{fill-opacity:.014}.empire-territory-fill{fill:var(--territory-color);fill-opacity:.055;stroke:none;pointer-events:none;filter:drop-shadow(0 0 16px color-mix(in srgb,var(--territory-color) 20%,transparent))}.empire-territory-fill.memory{fill-opacity:.016}.empire-territory-fill.mixed-intel{fill-opacity:.03}.empire-territory-border{fill:none;stroke:var(--territory-color);stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.76;pointer-events:none;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--territory-color) 38%,transparent))}.empire-territory-border.own{stroke-width:2.05;stroke-opacity:.9}.empire-territory-border.memory{stroke-opacity:.28;stroke-dasharray:6 7;filter:none}.empire-territory-border.mixed-intel{stroke-opacity:.5;stroke-dasharray:10 5}.contested-territory{fill:url(#contestedStripe);fill-opacity:.72;stroke:#ffd77a;stroke-width:.75;stroke-dasharray:2 5;stroke-opacity:.28;pointer-events:none;filter:drop-shadow(0 0 5px rgba(255,215,122,.08))}.sensor-coverage-fill{fill:var(--sensor-color);fill-opacity:.028;stroke:none;pointer-events:none}.sensor-coverage-border{fill:none;stroke:var(--sensor-color);stroke-width:1.1;stroke-dasharray:3 5;stroke-opacity:.42;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--sensor-color) 20%,transparent))}
   .route { stroke:#5d8ba8;stroke-opacity:.34;stroke-width:1.2 }.route.hostile { stroke:#fa6b62;stroke-dasharray:4 5 }
   .planned-route { fill:none;stroke:#ffd05c;stroke-width:2.2;stroke-dasharray:7 5;opacity:.95;filter:drop-shadow(0 0 4px rgba(255,208,92,.45)) }
   .system { color:var(--system-color);cursor:pointer;outline:none;transition:opacity .15s,filter .15s }.system.explored{opacity:.64;filter:saturate(.42) blur(.18px)}
@@ -680,7 +485,7 @@
   .map-controls button:hover { background:rgba(12,55,83,.95);border-color:#48c8ff }.map-controls button.active{color:#ffd76d;border-color:rgba(255,208,92,.7);background:rgba(52,39,8,.94);box-shadow:0 0 10px rgba(255,208,92,.12)}
   .sensor-layer-status{position:absolute;left:62px;bottom:116px;display:grid;gap:2px;max-width:330px;padding:.48rem .65rem;border:1px solid rgba(255,208,92,.35);background:rgba(4,14,24,.92);pointer-events:none}.sensor-layer-status strong{color:#ffd76d;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em}.sensor-layer-status span{color:#a8c4d5;font-size:.64rem}.sensor-layer-status small{color:#607b8d;font-size:.58rem;line-height:1.35}.minimap { position:absolute;left:14px;bottom:14px;width:180px;height:90px;border:1px solid rgba(69,178,232,.42);background:rgba(1,8,15,.9);padding:5px }
   .minimap svg { display:block;width:100%;height:100%;cursor:default }.minimap .mini { stroke-width:.5;fill-opacity:.12 }.minimap .player { fill:#35c0ff;stroke:#35c0ff }.minimap .crimson { fill:#ff5f58;stroke:#ff5f58 }.minimap .violet { fill:#c864ef;stroke:#c864ef }.minimap .amber { fill:#f0ae39;stroke:#f0ae39 }.minimap .viewport { fill:none;stroke:#fff;stroke-width:1;opacity:.7 }
-  .mini-sensor-territory{fill:var(--mini-color);fill-opacity:.04;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.45}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
+  .mini-contested-territory{fill:#ffd77a;fill-opacity:.055;stroke:#ffd77a;stroke-width:1.4;stroke-dasharray:1 1;stroke-opacity:.35}.mini-sensor-territory{fill:var(--mini-color);fill-opacity:.04;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.45}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
   .map-legend { position:absolute;top:12px;left:14px;max-width:calc(100% - 28px);display:flex;align-items:center;gap:.85rem;padding:.5rem .7rem;background:rgba(2,10,18,.86);border:1px solid rgba(65,159,210,.22);color:#7893a5;font-size:.68rem;overflow-x:auto;white-space:nowrap }
   .map-legend span::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.35rem }.friendly::before { background:#43c9ff;box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d;box-shadow:0 0 8px #ff645d }
   .legend-entry{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-hint{margin-left:.25rem;color:#5f798b}.legend-hint::before{display:none!important}.legend-hint b{color:#8eabba;font-weight:500}
