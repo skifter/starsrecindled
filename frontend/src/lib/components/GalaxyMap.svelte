@@ -32,6 +32,7 @@
     systemIds: territory.sourceSystemIds,
   }));
   $: contestedTerritoryPaths = influenceResult.contested.paths;
+  $: medianTerritoryPaths = influenceResult.medianPaths;
   $: sensorTerritories = buildSensorTerritories();
   $: visibleKnownCount = systems.filter((system) => system.visibilityState !== 'explored').length;
   $: memorySystemCount = systems.filter((system) => system.visibilityState === 'explored').length;
@@ -210,10 +211,6 @@
       <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       <filter id="territoryBlur"><feGaussianBlur stdDeviation="15"/></filter>
       <filter id="fogHoleBlur"><feGaussianBlur stdDeviation="24"/></filter>
-      <pattern id="contestedStripe" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-        <rect width="12" height="12" fill="#d7f0ff" fill-opacity=".012"/>
-        <rect width="2.2" height="12" fill="#ffd77a" fill-opacity=".11"/>
-      </pattern>
       <pattern id="starDust" width="90" height="72" patternUnits="userSpaceOnUse">
         <circle cx="8" cy="12" r=".8" fill="#d7efff" opacity=".55"/><circle cx="55" cy="35" r=".55" fill="#fff" opacity=".42"/><circle cx="83" cy="64" r=".7" fill="#9bcfff" opacity=".46"/><circle cx="30" cy="59" r=".4" fill="#fff" opacity=".36"/>
       </pattern>
@@ -258,6 +255,9 @@
         {/each}
         {#each contestedTerritoryPaths as path}
           <path class="contested-territory" d={path} />
+        {/each}
+        {#each medianTerritoryPaths as path}
+          <path class="empire-median" d={path} />
         {/each}
       {/if}
 
@@ -414,6 +414,9 @@
         {#each contestedTerritoryPaths as path}
           <path class="mini-contested-territory" d={path} transform="scale(.1)"/>
         {/each}
+        {#each medianTerritoryPaths as path}
+          <path class="mini-empire-median" d={path} transform="scale(.1)"/>
+        {/each}
         {#each systems.filter((system) => system.ownerPlayerId !== null) as system}
           {@const miniRange = sensorRange(system)}
           {#if miniRange > 0}<circle class="mini-sensor" style={`--mini-color:${OWNER_COLORS[system.owner]}`} cx={system.x} cy={system.y * .62} r={4 + miniRange * 2.4}/>{/if}
@@ -449,7 +452,10 @@
         </span>
       {/each}
       <span class="legend-entry unclaimed-entry"><i></i>Unclaimed</span>
-      <span class="legend-hint"><b>border</b> sphere of influence · <b>hatched</b> contested · <b>layers</b> sensor coverage · <b>faded</b> last known</span>
+      <span class="legend-key territory-key"><i></i>Territory</span>
+      <span class="legend-key contested-key"><i></i>Contested</span>
+      <span class="legend-key sensor-key"><i></i>Sensor range</span>
+      <span class="legend-key memory-key"><i></i>Last known</span>
     {:else}
       <span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span>
     {/if}
@@ -462,7 +468,7 @@
   .galaxy-map.dragging>svg { cursor:grabbing }
   .territory { fill-opacity:.035;stroke-width:1.3;stroke-dasharray:5 4 }
   .territory.player { fill:#37bfff;stroke:#37bfff }.territory.crimson { fill:#ff544f;stroke:#ff544f }.territory.violet { fill:#bd55ed;stroke:#bd55ed }.territory.amber { fill:#e7a72c;stroke:#e7a72c }
-  .empire-territory-aura{fill:var(--territory-color);fill-opacity:.02;stroke:none;filter:url(#territoryBlur);pointer-events:none}.empire-territory-aura.memory{fill-opacity:.008}.empire-territory-aura.mixed-intel{fill-opacity:.014}.empire-territory-fill{fill:var(--territory-color);fill-opacity:.055;stroke:none;pointer-events:none;filter:drop-shadow(0 0 16px color-mix(in srgb,var(--territory-color) 20%,transparent))}.empire-territory-fill.memory{fill-opacity:.016}.empire-territory-fill.mixed-intel{fill-opacity:.03}.empire-territory-border{fill:none;stroke:var(--territory-color);stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.76;pointer-events:none;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--territory-color) 38%,transparent))}.empire-territory-border.own{stroke-width:2.05;stroke-opacity:.9}.empire-territory-border.memory{stroke-opacity:.28;stroke-dasharray:6 7;filter:none}.empire-territory-border.mixed-intel{stroke-opacity:.5;stroke-dasharray:10 5}.contested-territory{fill:url(#contestedStripe);fill-opacity:.72;stroke:#ffd77a;stroke-width:.75;stroke-dasharray:2 5;stroke-opacity:.28;pointer-events:none;filter:drop-shadow(0 0 5px rgba(255,215,122,.08))}.sensor-coverage-fill{fill:var(--sensor-color);fill-opacity:.028;stroke:none;pointer-events:none}.sensor-coverage-border{fill:none;stroke:var(--sensor-color);stroke-width:1.1;stroke-dasharray:3 5;stroke-opacity:.42;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--sensor-color) 20%,transparent))}
+  .empire-territory-aura{fill:var(--territory-color);fill-opacity:.018;stroke:none;filter:url(#territoryBlur);pointer-events:none}.empire-territory-aura.memory{fill-opacity:.007}.empire-territory-aura.mixed-intel{fill-opacity:.012}.empire-territory-fill{fill:var(--territory-color);fill-opacity:.052;stroke:none;pointer-events:none;filter:drop-shadow(0 0 14px color-mix(in srgb,var(--territory-color) 18%,transparent))}.empire-territory-fill.memory{fill-opacity:.015}.empire-territory-fill.mixed-intel{fill-opacity:.028}.empire-territory-border{fill:none;stroke:var(--territory-color);stroke-width:1.55;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.72;pointer-events:none;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--territory-color) 34%,transparent))}.empire-territory-border.own{stroke-width:1.9;stroke-opacity:.88}.empire-territory-border.memory{stroke-opacity:.27;stroke-dasharray:6 7;filter:none}.empire-territory-border.mixed-intel{stroke-opacity:.48;stroke-dasharray:10 5}.contested-territory{fill:#d9ecf7;fill-opacity:.026;stroke:none;pointer-events:none;filter:drop-shadow(0 0 7px rgba(217,236,247,.06))}.empire-median{fill:none;stroke:#dcecf4;stroke-width:1.15;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.72;pointer-events:none;filter:drop-shadow(0 0 4px rgba(220,236,244,.22))}.sensor-coverage-fill{fill:var(--sensor-color);fill-opacity:.028;stroke:none;pointer-events:none}.sensor-coverage-border{fill:none;stroke:var(--sensor-color);stroke-width:1.1;stroke-dasharray:3 5;stroke-opacity:.42;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--sensor-color) 20%,transparent))}
   .route { stroke:#5d8ba8;stroke-opacity:.34;stroke-width:1.2 }.route.hostile { stroke:#fa6b62;stroke-dasharray:4 5 }
   .planned-route { fill:none;stroke:#ffd05c;stroke-width:2.2;stroke-dasharray:7 5;opacity:.95;filter:drop-shadow(0 0 4px rgba(255,208,92,.45)) }
   .system { color:var(--system-color);cursor:pointer;outline:none;transition:opacity .15s,filter .15s }.system.explored{opacity:.64;filter:saturate(.42) blur(.18px)}
@@ -485,13 +491,13 @@
   .map-controls button:hover { background:rgba(12,55,83,.95);border-color:#48c8ff }.map-controls button.active{color:#ffd76d;border-color:rgba(255,208,92,.7);background:rgba(52,39,8,.94);box-shadow:0 0 10px rgba(255,208,92,.12)}
   .sensor-layer-status{position:absolute;left:62px;bottom:116px;display:grid;gap:2px;max-width:330px;padding:.48rem .65rem;border:1px solid rgba(255,208,92,.35);background:rgba(4,14,24,.92);pointer-events:none}.sensor-layer-status strong{color:#ffd76d;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em}.sensor-layer-status span{color:#a8c4d5;font-size:.64rem}.sensor-layer-status small{color:#607b8d;font-size:.58rem;line-height:1.35}.minimap { position:absolute;left:14px;bottom:14px;width:180px;height:90px;border:1px solid rgba(69,178,232,.42);background:rgba(1,8,15,.9);padding:5px }
   .minimap svg { display:block;width:100%;height:100%;cursor:default }.minimap .mini { stroke-width:.5;fill-opacity:.12 }.minimap .player { fill:#35c0ff;stroke:#35c0ff }.minimap .crimson { fill:#ff5f58;stroke:#ff5f58 }.minimap .violet { fill:#c864ef;stroke:#c864ef }.minimap .amber { fill:#f0ae39;stroke:#f0ae39 }.minimap .viewport { fill:none;stroke:#fff;stroke-width:1;opacity:.7 }
-  .mini-contested-territory{fill:#ffd77a;fill-opacity:.055;stroke:#ffd77a;stroke-width:1.4;stroke-dasharray:1 1;stroke-opacity:.35}.mini-sensor-territory{fill:var(--mini-color);fill-opacity:.04;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.45}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
+  .mini-contested-territory{fill:#dcecf4;fill-opacity:.05;stroke:none}.mini-empire-median{fill:none;stroke:#e5f3fa;stroke-width:1.15;stroke-linecap:round;stroke-opacity:.65}.mini-sensor-territory{fill:var(--mini-color);fill-opacity:.04;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.45}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
   .map-legend { position:absolute;top:12px;left:14px;max-width:calc(100% - 28px);display:flex;align-items:center;gap:.85rem;padding:.5rem .7rem;background:rgba(2,10,18,.86);border:1px solid rgba(65,159,210,.22);color:#7893a5;font-size:.68rem;overflow-x:auto;white-space:nowrap }
   .map-legend span::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.35rem }.friendly::before { background:#43c9ff;box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d;box-shadow:0 0 8px #ff645d }
-  .legend-entry{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-hint{margin-left:.25rem;color:#5f798b}.legend-hint::before{display:none!important}.legend-hint b{color:#8eabba;font-weight:500}
+  .legend-entry,.legend-key{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before,.legend-key::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-key{gap:.35rem;color:#6f899a}.legend-key i{display:inline-block;width:15px;height:8px;margin:0;position:relative}.territory-key i{border-top:2px solid #7fd7ff}.contested-key i{border-top:1px solid #dcecf4;box-shadow:0 0 4px rgba(220,236,244,.22)}.sensor-key i{border-top:1px dashed #7fd7ff;opacity:.7}.memory-key i{border-top:1px dashed #8497a3;opacity:.45}
   .planning-hint{position:absolute;top:54px;left:14px;display:flex;align-items:center;gap:.45rem;padding:.45rem .65rem;border:1px solid rgba(255,208,92,.45);background:rgba(49,35,5,.9);color:#ffd76d;font-size:.68rem;pointer-events:none}
   .empty-universe{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:.4rem;padding:2rem;text-align:center;background:rgba(2,8,14,.82)}.empty-universe strong{color:#e7f8ff;text-transform:uppercase;letter-spacing:.08em}.empty-universe span{max-width:520px;color:#7792a4;font-size:.75rem;line-height:1.5}
   @keyframes pulse { 0%,100% { r:21;opacity:.85 } 50% { r:29;opacity:.12 } }
   @keyframes destinationPulse { 0%,100% { opacity:.55 } 50% { opacity:1 } }
-  @media (max-width:760px) { .galaxy-map{min-height:420px}.minimap{width:135px;height:72px}.map-controls{bottom:96px}.sensor-layer-status{left:54px;bottom:96px;max-width:250px}.sensor-layer-status small{display:none}.map-legend{left:8px;right:8px;max-width:none}.legend-hint{display:none}.planning-hint{left:8px;top:50px} }
+  @media (max-width:760px) { .galaxy-map{min-height:420px}.minimap{width:135px;height:72px}.map-controls{bottom:96px}.sensor-layer-status{left:54px;bottom:96px;max-width:250px}.sensor-layer-status small{display:none}.map-legend{left:8px;right:8px;max-width:none}.legend-key{display:none}.planning-hint{left:8px;top:50px} }
 </style>

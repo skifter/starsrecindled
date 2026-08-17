@@ -25,6 +25,7 @@ export interface ContestedTerritory {
 export interface InfluenceResult {
   territories: EmpireInfluenceTerritory[];
   contested: ContestedTerritory;
+  medianPaths: string[];
 }
 
 export interface InfluenceOptions {
@@ -79,6 +80,25 @@ export function colonyInfluenceRadius(system: StarSystem): number {
   );
 }
 
+function sourceSeed(systemId: string): number {
+  let hash = 0;
+  for (let index = 0; index < systemId.length; index += 1) {
+    hash = (hash * 31 + systemId.charCodeAt(index)) >>> 0;
+  }
+  return (hash % 6283) / 1000;
+}
+
+function effectiveRadius(source: TerritorySource, x: number, y: number): number {
+  // Keep the field mathematically smooth but avoid perfectly circular lone-colony
+  // borders. The modulation is deterministic and deliberately subtle (~5%).
+  const angle = Math.atan2(y - source.y, x - source.x);
+  const seed = sourceSeed(source.systemId);
+  const modulation = 1
+    + Math.sin(angle * 2 + seed) * 0.035
+    + Math.sin(angle * 3 - seed * 0.7) * 0.018;
+  return source.radius * modulation;
+}
+
 function gaussianInfluence(distance: number, strength: number, radius: number): number {
   const sigma = Math.max(1, radius * 0.58);
   return strength * Math.exp(-(distance * distance) / (2 * sigma * sigma));
@@ -102,8 +122,9 @@ function scoreAtPoint(x: number, y: number, sources: TerritorySource[]): Map<num
   const scores = new Map<number, number>();
   for (const source of sources) {
     const distance = Math.hypot(x - source.x, y - source.y);
-    if (distance > source.radius * 2.4) continue;
-    const score = gaussianInfluence(distance, source.strength, source.radius);
+    const radius = effectiveRadius(source, x, y);
+    if (distance > radius * 2.4) continue;
+    const score = gaussianInfluence(distance, source.strength, radius);
     if (score < 0.0005) continue;
     scores.set(source.empireId, (scores.get(source.empireId) ?? 0) + score);
   }
@@ -151,6 +172,20 @@ function contestedField(point: GridPoint, minimumControl: number, contestedRatio
   return second / first - contestedRatio;
 }
 
+function pairIsRelevant(point: GridPoint, firstEmpireId: number, secondEmpireId: number, minimumControl: number): boolean {
+  const first = point.scores.get(firstEmpireId) ?? 0;
+  const second = point.scores.get(secondEmpireId) ?? 0;
+  if (first < minimumControl || second < minimumControl) return false;
+
+  const ranked = [...point.scores.entries()].sort((a, b) => b[1] - a[1]);
+  const topTwo = new Set(ranked.slice(0, 2).map(([empireId]) => empireId));
+  return topTwo.has(firstEmpireId) && topTwo.has(secondEmpireId);
+}
+
+function pairMedianField(point: GridPoint, firstEmpireId: number, secondEmpireId: number): number {
+  return (point.scores.get(firstEmpireId) ?? 0) - (point.scores.get(secondEmpireId) ?? 0);
+}
+
 function interpolate(a: Point, b: Point, va: number, vb: number): Point {
   const denominator = va - vb;
   const t = Math.abs(denominator) < 1e-9 ? 0.5 : clamp(va / denominator, 0, 1);
@@ -196,6 +231,53 @@ function marchingSegments(grid: GridPoint[][], valueAt: (point: GridPoint) => nu
         } else {
           segments.push({ a: e0, b: e1 }, { a: e2, b: e3 });
         }
+      }
+    }
+  }
+
+  return segments;
+}
+
+function marchingPairMedianSegments(
+  grid: GridPoint[][],
+  firstEmpireId: number,
+  secondEmpireId: number,
+  minimumControl: number,
+): Segment[] {
+  const segments: Segment[] = [];
+
+  for (let row = 0; row < grid.length - 1; row += 1) {
+    for (let column = 0; column < grid[row].length - 1; column += 1) {
+      const tl = grid[row][column];
+      const tr = grid[row][column + 1];
+      const br = grid[row + 1][column + 1];
+      const bl = grid[row + 1][column];
+      const corners = [tl, tr, br, bl];
+      if (corners.filter((point) => pairIsRelevant(point, firstEmpireId, secondEmpireId, minimumControl)).length < 2) continue;
+
+      const vtl = pairMedianField(tl, firstEmpireId, secondEmpireId);
+      const vtr = pairMedianField(tr, firstEmpireId, secondEmpireId);
+      const vbr = pairMedianField(br, firstEmpireId, secondEmpireId);
+      const vbl = pairMedianField(bl, firstEmpireId, secondEmpireId);
+      const crossings: { edge: number; point: Point }[] = [];
+
+      if ((vtl >= 0) !== (vtr >= 0)) crossings.push({ edge: 0, point: interpolate(tl, tr, vtl, vtr) });
+      if ((vtr >= 0) !== (vbr >= 0)) crossings.push({ edge: 1, point: interpolate(tr, br, vtr, vbr) });
+      if ((vbr >= 0) !== (vbl >= 0)) crossings.push({ edge: 2, point: interpolate(br, bl, vbr, vbl) });
+      if ((vbl >= 0) !== (vtl >= 0)) crossings.push({ edge: 3, point: interpolate(bl, tl, vbl, vtl) });
+
+      if (crossings.length === 2) {
+        segments.push({ a: crossings[0].point, b: crossings[1].point });
+      } else if (crossings.length === 4) {
+        const centerValue = (vtl + vtr + vbr + vbl) / 4;
+        const byEdge = new Map(crossings.map((entry) => [entry.edge, entry.point]));
+        const e0 = byEdge.get(0);
+        const e1 = byEdge.get(1);
+        const e2 = byEdge.get(2);
+        const e3 = byEdge.get(3);
+        if (!e0 || !e1 || !e2 || !e3) continue;
+        if (centerValue >= 0) segments.push({ a: e0, b: e3 }, { a: e1, b: e2 });
+        else segments.push({ a: e0, b: e1 }, { a: e2, b: e3 });
       }
     }
   }
@@ -281,6 +363,33 @@ function chaikinClosed(points: Point[], passes = 2): Point[] {
   return current;
 }
 
+function chaikinOpen(points: Point[], passes = 2): Point[] {
+  let current = [...points];
+  for (let pass = 0; pass < passes; pass += 1) {
+    if (current.length < 3) break;
+    const next: Point[] = [current[0]];
+    for (let index = 0; index < current.length - 1; index += 1) {
+      const a = current[index];
+      const b = current[index + 1];
+      next.push(
+        { x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 },
+        { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 },
+      );
+    }
+    next.push(current[current.length - 1]);
+    current = next;
+  }
+  return current;
+}
+
+function linesToOpenPaths(lines: Point[][]): string[] {
+  return lines
+    .filter((line) => line.length >= 3)
+    .map((line) => chaikinOpen(line, 2))
+    .filter((line) => line.length >= 4)
+    .map((line) => `M ${line.map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' L ')}`);
+}
+
 function polygonArea(points: Point[]): number {
   let area = 0;
   for (let index = 0; index < points.length; index += 1) {
@@ -309,7 +418,7 @@ export function buildEmpireInfluence(
   const minimumControl = options.minimumControl ?? DEFAULT_MINIMUM_CONTROL;
   const contestedRatio = options.contestedRatio ?? DEFAULT_CONTESTED_RATIO;
   const sources = buildSources(systems);
-  if (sources.length === 0) return { territories: [], contested: { paths: [] } };
+  if (sources.length === 0) return { territories: [], contested: { paths: [] }, medianPaths: [] };
 
   const grid = buildGrid(width, height, step, sources);
   const empireIds = [...new Set(sources.map((source) => source.empireId))];
@@ -335,9 +444,23 @@ export function buildEmpireInfluence(
     (point) => contestedField(point, minimumControl, contestedRatio),
   );
 
+  const medianPaths: string[] = [];
+  for (let firstIndex = 0; firstIndex < empireIds.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < empireIds.length; secondIndex += 1) {
+      const segments = marchingPairMedianSegments(
+        grid,
+        empireIds[firstIndex],
+        empireIds[secondIndex],
+        minimumControl,
+      );
+      medianPaths.push(...linesToOpenPaths(connectSegments(segments)));
+    }
+  }
+
   return {
     territories,
     contested: { paths: linesToPaths(connectSegments(contestedSegments)) },
+    medianPaths,
   };
 }
 
