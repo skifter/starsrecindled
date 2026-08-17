@@ -94,6 +94,7 @@ export interface FleetSummary {
   destination?: string;
   eta?: number;
   ownerPlayerId?: number;
+  ownerLabel?: string;
   systemId?: string;
   targetSystemId?: string;
   colonizationCapacity?: number;
@@ -107,6 +108,7 @@ export interface StarSystem {
   owner: Owner;
   ownerPlayerId?: number | null;
   ownerLabel?: string;
+  isYours?: boolean;
   className: string;
   population: number;
   capacity: number;

@@ -239,11 +239,13 @@ final class DemoTurnEngine implements TurnEngineInterface
                     ++$buildSequence;
 
                     if ($item === 'Scout Wing') {
+                        $existingScoutCount = $this->countScoutFleets($fleets, (int) $playerId, $systemId);
+                        $scoutNumber = $existingScoutCount + 1;
                         $fleets[] = [
                             'id' => sprintf('fleet-%s-built-%d-%d', $playerId, $turn->getNumber() + 1, $buildSequence),
                             'ownerPlayerId' => (int) $playerId,
                             'systemId' => $systemId,
-                            'name' => sprintf('%s Scout Wing %d', (string) ($systems[$systemIndex]['name'] ?? 'Colony'), $buildSequence),
+                            'name' => sprintf('%s Scout Wing %d', (string) ($systems[$systemIndex]['name'] ?? 'Colony'), $scoutNumber),
                             'ships' => 40,
                             'role' => 'Scout fleet',
                             'colonizationCapacity' => 0,
@@ -293,6 +295,18 @@ final class DemoTurnEngine implements TurnEngineInterface
         $nextState['universe']['fleets'] = array_values($fleets);
 
         return new TurnGenerationResult($nextState, $reports);
+    }
+
+    /** @param list<mixed> $fleets */
+    private function countScoutFleets(array $fleets, int $playerId, string $systemId): int
+    {
+        return count(array_filter(
+            $fleets,
+            static fn (mixed $fleet): bool => is_array($fleet)
+                && (int) ($fleet['ownerPlayerId'] ?? 0) === $playerId
+                && ($fleet['systemId'] ?? null) === $systemId
+                && in_array(($fleet['role'] ?? null), ['Scout fleet', 'Exploration fleet'], true),
+        ));
     }
 
     /** @param list<mixed> $fleets */

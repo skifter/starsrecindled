@@ -1,7 +1,6 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import type { AccountGameAccess, AccountTurnStatus, AccountTurnStatusPlayer, GamePlayerSummary } from '../types';
-  import { APP_VERSION } from '../version';
 
   export let game: AccountGameAccess | null = null;
   export let status: AccountTurnStatus | null = null;
@@ -44,7 +43,6 @@
       <h1>Players</h1>
       <p class="intro">Players in <strong>{gameName}</strong>. This screen is the natural bridge to diplomacy as player-to-player relations are added.</p>
     </div>
-    <div class="game-version">Client <strong>v{APP_VERSION}</strong></div>
   </header>
 
   <div class="summary-grid">
@@ -92,8 +90,6 @@
   h1 { margin:0; color:#edf9ff; font-size:1.65rem; font-weight:500; letter-spacing:.08em; }
   .intro { max-width:720px; margin:.55rem 0 0; color:#7f98aa; font-size:.76rem; line-height:1.55; }
   .intro strong { color:#cce7f5; font-weight:500; }
-  .game-version { color:#6f8da0; font-size:.7rem; text-transform:uppercase; letter-spacing:.1em; }
-  .game-version strong { color:#5ccfff; font-weight:500; }
   .summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.7rem; margin-bottom:.9rem; }
   .summary-card { min-height:78px; display:flex; align-items:center; gap:.8rem; padding:.85rem 1rem; border:1px solid rgba(58,154,207,.2); background:rgba(5,18,31,.9); color:#52caff; }
   .summary-card span,.summary-card small,.summary-card strong { display:block; min-width:0; }

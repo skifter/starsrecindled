@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 027
 IFS=$'\n\t'
 
-SCRIPT_VERSION="2026-08-17.1"
+SCRIPT_VERSION="2026-08-17.2"
 CURRENT_STEP="initialisering"
 
 APP_NAME="stars"
@@ -59,6 +59,8 @@ PREVIOUS_CURRENT_KIND="none"
 PREVIOUS_CURRENT_TARGET=""
 DB_EXISTED="0"
 SWITCH_COMPLETED="0"
+WEB_CHECK_HTTP_CODE=""
+WEB_CHECK_URL=""
 
 log() {
     printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -918,6 +920,38 @@ systemctl is-active --quiet mariadb
 systemctl is-active --quiet stars-messenger-worker.service
 systemctl is-active --quiet stars-queue-reconcile.timer
 
+CURRENT_STEP="webserver-status og curl-kontrol"
+if systemctl is-active --quiet nginx; then
+    log "Webserver: OK (nginx kører)"
+else
+    die "Webserver: FEJL (nginx kører ikke)"
+fi
+
+WEB_CHECK_URL="${FRONTEND_URL}/"
+if [[ "${FRONTEND_URL}" == https://* ]]; then
+    WEB_CHECK_RESOLVE="${DOMAIN}:443:127.0.0.1"
+else
+    WEB_CHECK_RESOLVE="${DOMAIN}:80:127.0.0.1"
+fi
+
+if ! WEB_CHECK_HTTP_CODE="$(curl \
+    --silent \
+    --show-error \
+    --location \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    --connect-timeout 5 \
+    --max-time 20 \
+    --resolve "${WEB_CHECK_RESOLVE}" \
+    "${WEB_CHECK_URL}")"; then
+    die "Curl-kontrol: FEJL (${WEB_CHECK_URL} kunne ikke hentes)"
+fi
+
+if [[ ! "${WEB_CHECK_HTTP_CODE}" =~ ^(2|3)[0-9][0-9]$ ]]; then
+    die "Curl-kontrol: FEJL (${WEB_CHECK_URL} gav HTTP ${WEB_CHECK_HTTP_CODE})"
+fi
+log "Curl-kontrol: OK (HTTP ${WEB_CHECK_HTTP_CODE}) ${WEB_CHECK_URL}"
+
 test "$(readlink -f "${APP_ROOT}")" = "${RELEASE_ROOT}"
 test -f "${APP_ROOT}/composer.json"
 test -f "${APP_ROOT}/bin/console"
@@ -938,6 +972,8 @@ printf 'Databasebruger:%s\n' "${DB_USER}"
 printf 'Secrets:       %s og %s\n' "${DATABASE_SECRET_FILE}" "${APP_SECRET_FILE}"
 printf 'Log og backup: %s\n' "${BACKUP_DIR}"
 printf 'Rollback:      %s/rollback.sh\n' "${BACKUP_DIR}"
+printf 'Webserver:      OK (nginx)\n'
+printf 'Curl-kontrol:   OK (HTTP %s)\n' "${WEB_CHECK_HTTP_CODE}"
 printf '\nOpret et testspil med:\n'
 printf '  cd %q\n' "${APP_ROOT}"
 printf '  sudo -u %q APP_ENV=prod %q bin/console stars:game:create \\\n' "${APP_USER}" "${PHP_BIN}"

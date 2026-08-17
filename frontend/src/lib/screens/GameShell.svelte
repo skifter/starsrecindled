@@ -4,9 +4,11 @@
   import Icon from '../components/Icon.svelte';
   import Logo from '../components/Logo.svelte';
   import PlayersView from './PlayersView.svelte';
+  import FleetsView from './FleetsView.svelte';
   import SectionViews from '../components/SectionViews.svelte';
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
+  import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
   import type { AccountGameAccess, AccountTurnStatus, ConnectionSettings, FleetSummary, GameSection, PlayerOrders, RouteLink, StarSystem } from '../types';
 
   export let connection: ConnectionSettings;
@@ -42,6 +44,7 @@
 
   let activeSection: GameSection = 'players';
   let selectedSystem: StarSystem | null = demoSystems[0] ?? null;
+  let selectedFleet: FleetSummary | null = null;
   let planningFleet: FleetSummary | null = null;
   let sidebarOpen = false;
   let rightPanelOpen = true;
@@ -61,10 +64,27 @@
   $: gameSystems = demoMode ? demoSystems : liveUniverse.systems;
   $: gameRoutes = demoMode ? demoRoutes : liveUniverse.routes;
   $: gameYear = demoMode ? 2195 + serverTurnNumber : (status?.state?.year ?? (2400 + serverTurnNumber - 1));
-  $: ownFleetInSelected = selectedSystem?.fleets.find((fleet) => fleet.ownerPlayerId === connection.playerId) ?? null;
+  $: allLiveFleets = gameSystems.flatMap((system) => system.fleets);
+  $: selectedFleetCurrent = selectedFleet
+    ? (allLiveFleets.find((fleet) => fleet.id === selectedFleet?.id) ?? selectedFleet)
+    : null;
+  $: planningFleetCurrent = planningFleet
+    ? (allLiveFleets.find((fleet) => fleet.id === planningFleet?.id) ?? planningFleet)
+    : null;
+  $: ownFleetInSelected = selectedSystem
+    ? (selectedFleetCurrent?.systemId === selectedSystem.id && selectedFleetCurrent.ownerPlayerId === connection.playerId
+      ? selectedFleetCurrent
+      : selectedSystem.fleets.find((fleet) => fleet.ownerPlayerId === connection.playerId) ?? null)
+    : null;
   $: colonizerInSelected = selectedSystem?.fleets.find((fleet) =>
     fleet.ownerPlayerId === connection.playerId && colonyCapacity(fleet) > 0
   ) ?? null;
+  $: validDestinationIds = planningFleetCurrent
+    ? gameRoutes.flatMap((route) => route.from === planningFleetCurrent?.systemId ? [route.to] : route.to === planningFleetCurrent?.systemId ? [route.from] : [])
+    : [];
+  $: playerIds = (status?.players ?? []).map((player) => player.id);
+  $: currentPlayerOwner = ownerForPlayerId(connection.playerId, playerIds);
+  $: currentPlayerColor = OWNER_COLORS[currentPlayerOwner];
   $: plannedRoutes = demoMode ? [] : (orders.fleets ?? []).flatMap((order): RouteLink[] => {
     if (order.action !== 'move' || !order.targetSystemId) return [];
     const source = gameSystems.find((system) => system.fleets.some((fleet) => fleet.id === order.fleetId));
@@ -106,10 +126,12 @@
       }
 
       const nextFleetOrders = (orders.fleets ?? []).filter((order) => order.fleetId !== planningFleet?.id);
+      const plannedFleet = planningFleet;
       updateOrders(
-        { ...orders, fleets: [...nextFleetOrders, { fleetId: planningFleet.id, action: 'move', targetSystemId: system.id }] },
-        `${planningFleet.name} will move to ${system.name} when the turn is processed.`
+        { ...orders, fleets: [...nextFleetOrders, { fleetId: plannedFleet.id, action: 'move', targetSystemId: system.id }] },
+        `Waypoint set: ${plannedFleet.name} → ${system.name}. Save draft or submit the turn to keep the order.`
       );
+      selectedFleet = plannedFleet;
       planningFleet = null;
     }
 
@@ -171,6 +193,39 @@
     );
   }
 
+  function selectFleet(fleet: FleetSummary, system: StarSystem, openGalaxy = false): void {
+    selectedFleet = fleet;
+    selectedSystem = system;
+    rightPanelOpen = true;
+    if (openGalaxy) activeSection = 'galaxy';
+
+    if (!demoMode && fleet.ownerPlayerId !== connection.playerId) {
+      localNotice = `${fleet.name} belongs to ${fleet.ownerLabel ?? 'another player'}.`;
+      return;
+    }
+
+    localNotice = `${fleet.name} selected · ${fleet.ships.toLocaleString('en-US')} ships at ${system.name}.`;
+  }
+
+  function beginWaypointForFleet(fleet: FleetSummary, system: StarSystem): void {
+    if (!serverUniverseReady()) return;
+    if (!demoMode && !editableTurn) {
+      localNotice = 'Reopen the turn before changing fleet orders.';
+      return;
+    }
+    if (!demoMode && fleet.ownerPlayerId !== connection.playerId) {
+      localNotice = 'You can only set waypoints for your own fleets.';
+      return;
+    }
+
+    selectedFleet = fleet;
+    selectedSystem = system;
+    planningFleet = fleet;
+    activeSection = 'galaxy';
+    rightPanelOpen = true;
+    localNotice = `Planning ${fleet.name}: choose one of the highlighted connected systems.`;
+  }
+
   function addWaypoint(action: 'move' | 'colonize' = 'move'): void {
     if (!selectedSystem || !serverUniverseReady()) return;
 
@@ -206,14 +261,15 @@
       return;
     }
 
-    const fleet = selectedSystem.fleets.find((entry) => entry.ownerPlayerId === connection.playerId);
+    const fleet = selectedFleet?.systemId === selectedSystem.id && selectedFleet.ownerPlayerId === connection.playerId
+      ? selectedFleet
+      : selectedSystem.fleets.find((entry) => entry.ownerPlayerId === connection.playerId);
     if (!fleet) {
-      localNotice = 'Select a system containing one of your fleets first.';
+      localNotice = 'Select one of your fleets first.';
       return;
     }
 
-    planningFleet = fleet;
-    localNotice = `Planning ${fleet.name}: select a connected destination system on the galaxy map.`;
+    beginWaypointForFleet(fleet, selectedSystem);
   }
 
   function prioritizeResearch(field: string): void {
@@ -247,7 +303,7 @@
     <div class="top-logo"><Logo compact={true} subtitle={false}/></div>
     <div class="game-block"><Icon name="galaxy" size={18}/><span><strong>{game?.label ?? (demoMode ? 'Demonstration universe' : `Game ${connection.gameId}`)}</strong><small>Game {connection.gameId}</small></span></div>
     <div class="turn-block"><Icon name="calendar" size={18}/><span><strong>Year {gameYear}</strong><small>{demoMode ? `Demo turn ${serverTurnNumber}` : `Turn ${serverTurnNumber} · ${serverTurnStatus.toUpperCase()} · ${submittedCount}/${playerCount || '?'} submitted`}</small></span></div>
-    <div class="empire-block"><Icon name="shield" size={22}/><span><strong>{game?.playerLabel ?? (demoMode ? 'Demonstration player' : status?.you.name ?? 'Player')}</strong><small>{demoMode ? 'Demonstration player' : `Player ${connection.playerId}`}</small></span></div>
+    <div class="empire-block"><i class="player-color" style={`--player-color:${demoMode ? '#47c8ff' : currentPlayerColor}`}></i><Icon name="shield" size={22}/><span><strong>{game?.playerLabel ?? (demoMode ? 'Demonstration player' : status?.you.name ?? 'Player')}</strong><small>{demoMode ? 'Demonstration player' : `Player ${connection.playerId}`}</small></span></div>
     {#if demoMode}
       <div class="resource-bar">
         {#each topResources as resource}<div><Icon name={resource.icon} size={17}/><span><strong>{resource.value}</strong><small>{resource.income}</small></span></div>{/each}
@@ -263,7 +319,7 @@
     <button class="top-icon" aria-label="Exit to menu" onclick={onExit}><Icon name="power" /></button>
   </header>
 
-  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players'}>
+  <div class="game-grid" class:panel-closed={!rightPanelOpen || activeSection === 'players' || activeSection === 'fleets'}>
     <nav class="sidebar" class:open={sidebarOpen}>
       {#each navigation as item}
         <button class:active={activeSection === item.id} onclick={() => { activeSection = item.id; sidebarOpen = false; }}><Icon name={item.icon} size={25}/><span>{item.label}</span></button>
@@ -277,28 +333,61 @@
       {#if activeSection === 'players'}
         <PlayersView {game} {status} {demoMode}/>
       {:else if activeSection === 'galaxy'}
-        <GalaxyMap systems={gameSystems} routes={gameRoutes} {plannedRoutes} players={status?.players ?? []} currentPlayerId={connection.playerId} selectedId={selectedSystem?.id ?? ''} liveMode={!demoMode} onSelect={selectSystem}/>
+        <GalaxyMap
+          systems={gameSystems}
+          routes={gameRoutes}
+          {plannedRoutes}
+          players={status?.players ?? []}
+          currentPlayerId={connection.playerId}
+          selectedId={selectedSystem?.id ?? ''}
+          selectedFleetId={selectedFleetCurrent?.id ?? ''}
+          planningFleetId={planningFleetCurrent?.id ?? ''}
+          {validDestinationIds}
+          liveMode={!demoMode}
+          onSelect={selectSystem}
+          onSelectFleet={(fleet, system) => beginWaypointForFleet(fleet, system)}
+        />
+      {:else if activeSection === 'fleets' && !demoMode}
+        <FleetsView
+          systems={gameSystems}
+          players={status?.players ?? []}
+          currentPlayerId={connection.playerId}
+          selectedFleetId={selectedFleetCurrent?.id ?? ''}
+          {orders}
+          {editableTurn}
+          onLocate={(fleet, system) => selectFleet(fleet, system, true)}
+          onPlanRoute={beginWaypointForFleet}
+        />
       {:else if !demoMode}
         <section class="live-pending">
           <Icon name={navigation.find((item) => item.id === activeSection)?.icon ?? 'galaxy'} size={38}/>
           <h2>{navigation.find((item) => item.id === activeSection)?.label ?? activeSection}</h2>
-          <p>This section is not connected to the live game state yet. Live galaxy actions currently include fleet movement, colonization and one-turn production.</p>
+          <p>This section is not connected to the live game state yet. Live gameplay currently includes fleet management, movement, colonization and one-turn production.</p>
         </section>
       {:else}
         <SectionViews section={activeSection} {status} onSelectSystem={selectSystem} onResearch={prioritizeResearch}/>
       {/if}
     </main>
 
-    {#if activeSection !== 'players' && selectedSystem}
+    {#if activeSection !== 'players' && activeSection !== 'fleets' && selectedSystem}
       <div class="right-wrap" class:open={rightPanelOpen}>
         <button class="panel-toggle" aria-label="Toggle detail panel" onclick={() => (rightPanelOpen = !rightPanelOpen)}><Icon name={rightPanelOpen ? 'chevron-right' : 'chevron-left'} size={17}/></button>
-        <DetailPanel system={selectedSystem} canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)} onBuild={addProduction} onWaypoint={() => addWaypoint('move')}/>
+        <DetailPanel
+          system={selectedSystem}
+          players={status?.players ?? []}
+          currentPlayerId={connection.playerId}
+          selectedFleetId={selectedFleetCurrent?.id ?? ''}
+          canBuild={demoMode || (editableTurn && selectedSystem.ownerPlayerId === connection.playerId)}
+          onBuild={addProduction}
+          onSelectFleet={(fleet) => selectFleet(fleet, selectedSystem)}
+          onWaypointFleet={(fleet) => beginWaypointForFleet(fleet, selectedSystem)}
+        />
       </div>
     {/if}
   </div>
 
   <footer class="command-bar">
-    <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? 'Move selected fleet' : 'Select your fleet system'}</small></span></button>
+    <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? ownFleetInSelected.name : 'Select a fleet'}</small></span></button>
     <button onclick={() => addWaypoint('colonize')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== null || !colonizerInSelected)) || (demoMode && selectedSystem.owner !== 'neutral')}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode ? 'Establish colony' : selectedSystem?.ownerPlayerId !== null ? 'Select unclaimed system' : colonizerInSelected ? `${colonyCapacity(colonizerInSelected)} colony module` : 'Requires colony module'}</small></span></button>
     <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId)) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : selectedSystem?.ownerPlayerId === connection.playerId ? 'Queue orbital factory' : 'Select your colony'}</small></span></button>
     <button onclick={() => (activeSection = 'research')} disabled={!demoMode}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : 'Coming later'}</small></span></button>
@@ -326,14 +415,14 @@
 
 <style>
   .game-shell { height:100svh; min-height:650px; display:grid; grid-template-rows:66px minmax(0,1fr) 82px; overflow:hidden; background:#02070e; color:#b7cad7 }
-  .topbar { display:grid; grid-template-columns:220px 175px 120px 205px minmax(250px,1fr) 130px 42px 42px; align-items:stretch; border-bottom:1px solid rgba(58,170,225,.25); background:linear-gradient(180deg,#071421,#030a12); z-index:20 }.top-logo,.game-block,.turn-block,.empire-block,.resource-bar,.turn-progress,.turn-state,.top-icon { border-right:1px solid rgba(62,143,187,.16) }.top-logo { display:flex;align-items:center;gap:.55rem;padding:0 .9rem }.game-block,.turn-block,.empire-block { display:flex;align-items:center;gap:.6rem;padding:0 .8rem;color:#6dcfff;min-width:0}.game-block span,.turn-block span,.empire-block span{min-width:0}.game-block strong,.game-block small,.turn-block strong,.turn-block small,.empire-block strong,.empire-block small{display:block}.game-block strong,.turn-block strong,.empire-block strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dbeaf3;font-size:.76rem;font-weight:500}.game-block small,.turn-block small,.empire-block small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#70899b;font-size:.63rem;margin-top:.18rem}.resource-bar{display:flex;align-items:center;justify-content:center}.turn-progress{display:flex;align-items:center;justify-content:center;gap:1.4rem;padding:0 .9rem}.turn-progress span{min-width:0;text-align:center}.turn-progress strong,.turn-progress small{display:block}.turn-progress strong{color:#dcecf4;font-size:.78rem}.turn-progress small{margin-top:.18rem;color:#6f8b9e;font-size:.58rem;text-transform:uppercase;letter-spacing:.06em}.resource-bar>div{display:flex;align-items:center;gap:.4rem;padding:0 .8rem;color:#55caff;border-right:1px solid rgba(62,143,187,.13)}.resource-bar>div:last-child{border:0}.resource-bar strong,.resource-bar small{display:block}.resource-bar strong{color:#e0edf4;font-size:.72rem}.resource-bar small{color:#6d899b;font-size:.58rem}.turn-state,.top-icon,.mobile-menu{border:0;background:transparent;color:#55cdff;cursor:pointer}.turn-state{display:flex;align-items:center;justify-content:center;gap:.6rem;letter-spacing:.1em}.turn-state span{width:24px;height:24px;border:3px solid #42c8ff;border-right-color:transparent;border-radius:50%}.turn-state span.spinning{animation:spin 1s linear infinite}.turn-state strong{font-size:.72rem}.top-icon{display:grid;place-items:center}.top-icon:hover{background:rgba(16,57,82,.45);color:#e9faff}.mobile-menu{display:none}
+  .topbar{display:grid;grid-template-columns:minmax(170px,205px) minmax(135px,1.1fr) 118px minmax(150px,.9fr) minmax(180px,1fr) minmax(118px,130px) 40px 40px;align-items:stretch;min-width:0;overflow:hidden;border-bottom:1px solid rgba(58,170,225,.25);background:linear-gradient(180deg,#071421,#030a12);z-index:20}.top-logo,.game-block,.turn-block,.empire-block,.resource-bar,.turn-progress,.turn-state,.top-icon{min-width:0;overflow:hidden;border-right:1px solid rgba(62,143,187,.16)}.top-logo{display:flex;align-items:center;gap:.45rem;padding:0 .7rem}.top-logo :global(.title){white-space:nowrap}.game-block,.turn-block,.empire-block{display:flex;align-items:center;gap:.5rem;padding:0 .65rem;color:#6dcfff;min-width:0}.empire-block>.player-color{width:8px;height:28px;flex:none;border-radius:4px;background:var(--player-color);box-shadow:0 0 9px var(--player-color)}.game-block span,.turn-block span,.empire-block span{min-width:0}.game-block strong,.game-block small,.turn-block strong,.turn-block small,.empire-block strong,.empire-block small{display:block}.game-block strong,.turn-block strong,.empire-block strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#dbeaf3;font-size:.74rem;font-weight:500}.game-block small,.turn-block small,.empire-block small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#70899b;font-size:.61rem;margin-top:.16rem}.resource-bar{display:flex;align-items:center;justify-content:center}.turn-progress{display:flex;align-items:center;justify-content:center;gap:1rem;padding:0 .6rem}.turn-progress span{min-width:0;text-align:center}.turn-progress strong,.turn-progress small{display:block}.turn-progress strong{color:#dcecf4;font-size:.76rem}.turn-progress small{margin-top:.16rem;color:#6f8b9e;font-size:.55rem;text-transform:uppercase;letter-spacing:.05em}.resource-bar>div{display:flex;align-items:center;gap:.35rem;padding:0 .55rem;color:#55caff;border-right:1px solid rgba(62,143,187,.13)}.resource-bar>div:last-child{border:0}.resource-bar strong,.resource-bar small{display:block}.resource-bar strong{color:#e0edf4;font-size:.7rem}.resource-bar small{color:#6d899b;font-size:.56rem}.turn-state,.top-icon,.mobile-menu{border:0;background:transparent;color:#55cdff;cursor:pointer}.turn-state{display:flex;align-items:center;justify-content:center;gap:.5rem;min-width:0;letter-spacing:.08em}.turn-state span{width:22px;height:22px;flex:none;border:3px solid #42c8ff;border-right-color:transparent;border-radius:50%}.turn-state span.spinning{animation:spin 1s linear infinite}.turn-state strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.68rem}.top-icon{display:grid;place-items:center}.top-icon:hover{background:rgba(16,57,82,.45);color:#e9faff}.mobile-menu{display:none}
   .game-grid { min-height:0; display:grid; grid-template-columns:196px minmax(0,1fr) 330px; transition:grid-template-columns .2s }.game-grid.panel-closed{grid-template-columns:196px minmax(0,1fr) 0}.sidebar { min-height:0; display:flex;flex-direction:column;background:linear-gradient(180deg,#06121e,#020911);border-right:1px solid rgba(58,164,219,.25);z-index:12}.sidebar button{min-height:72px;border:0;border-bottom:1px solid rgba(64,143,184,.13);background:transparent;color:#8ba4b5;display:flex;align-items:center;gap:.9rem;padding:0 1.15rem;text-transform:uppercase;letter-spacing:.07em;font:inherit;font-size:.73rem;cursor:pointer;text-align:left}.sidebar button:hover,.sidebar button.active{color:#e2f6ff;background:linear-gradient(90deg,rgba(12,66,101,.78),rgba(4,20,33,.4));box-shadow:inset 3px 0 #43c9ff}.sidebar button.active{border-color:rgba(67,201,255,.4)}.sidebar-spacer{flex:1}.sidebar button:nth-last-child(-n+2){min-height:52px;font-size:.65rem}.content-area{min-width:0;min-height:0;overflow:hidden}.live-pending{height:100%;display:grid;place-content:center;justify-items:center;gap:.65rem;padding:2rem;text-align:center;background:radial-gradient(circle at 50% 42%,rgba(18,91,127,.13),transparent 35%),#030912;color:#53caff}.live-pending h2{margin:0;color:#e4f5fd;font-size:1.2rem;font-weight:500;text-transform:uppercase;letter-spacing:.08em}.live-pending p{max-width:560px;margin:0;color:#7d97a9;font-size:.76rem;line-height:1.6}.right-wrap{position:relative;min-width:0;overflow:visible;transition:.2s}.right-wrap:not(.open){overflow:visible}.right-wrap:not(.open) :global(.detail-panel){display:none}.panel-toggle{position:absolute;left:-28px;top:10px;width:28px;height:42px;display:grid;place-items:center;border:1px solid rgba(56,164,218,.35);border-right:0;background:#061522;color:#5dccfa;cursor:pointer;z-index:6}
   .command-bar { display:grid;grid-template-columns:repeat(4,minmax(135px,1fr)) 145px 215px;gap:8px;padding:8px 10px;border-top:1px solid rgba(62,170,225,.28);background:linear-gradient(180deg,#06111c,#02070d);z-index:18}.command-bar button{border:1px solid rgba(58,174,231,.42);background:linear-gradient(180deg,rgba(7,34,52,.8),rgba(3,15,25,.9));color:#5ecbff;display:flex;align-items:center;justify-content:center;gap:.7rem;font:inherit;cursor:pointer}.command-bar button:hover:not(:disabled){border-color:#48c9ff;background:rgba(10,50,75,.9)}.command-bar button.planning{border-color:#ffd05c;box-shadow:inset 0 0 18px rgba(255,196,55,.12);color:#ffd05c}.command-bar button:disabled{opacity:.35;cursor:not-allowed}.command-bar strong,.command-bar small{display:block;text-align:left}.command-bar strong{text-transform:uppercase;letter-spacing:.06em;font-size:.72rem;color:#70d4ff}.command-bar small{color:#71899a;font-size:.6rem;margin-top:.16rem}.command-bar .draft-button{border-color:rgba(105,155,185,.32)}.command-bar .submit-button{border-color:#ffc139;background:linear-gradient(180deg,rgba(104,69,5,.75),rgba(55,34,1,.9));color:#ffcd53;box-shadow:inset 0 0 18px rgba(255,179,25,.1),0 0 12px rgba(255,174,20,.13)}.command-bar .submit-button strong{color:#ffd25b}.submit-ring{width:35px;height:35px;border:3px solid #ffc646;border-left-color:transparent;border-radius:50%;display:grid;place-items:center}
   .toast { position:fixed;right:1rem;bottom:94px;max-width:430px;padding:.8rem 1rem;border:1px solid rgba(70,197,255,.5);background:rgba(5,27,41,.96);color:#bfe9fc;font-size:.76rem;z-index:40;box-shadow:0 10px 35px rgba(0,0,0,.4)}.toast.error{border-color:rgba(255,84,84,.6);color:#ffc2c2;background:rgba(55,8,14,.96)}
   .modal-backdrop{position:fixed;inset:0;display:grid;place-items:center;padding:1rem;background:rgba(0,5,10,.82);backdrop-filter:blur(5px);z-index:50}.technical-modal{width:min(760px,96vw);max-height:90vh;display:grid;grid-template-rows:auto auto minmax(260px,1fr) auto;gap:.8rem;padding:1rem;background:#061522;border:1px solid rgba(66,190,244,.4)}.technical-modal header{display:flex;justify-content:space-between;align-items:center}.technical-modal header p{margin:0;color:#52c9fc;text-transform:uppercase;font-size:.62rem;letter-spacing:.12em}.technical-modal h2{margin:.2rem 0 0;color:#eef9ff;font-size:1.15rem}.technical-modal>p{margin:0;color:#8299aa;font-size:.72rem}.technical-modal code{color:#5dccfa}.technical-modal textarea{width:100%;height:100%;min-height:260px;resize:vertical;box-sizing:border-box;border:1px solid rgba(57,155,205,.3);background:#01070c;color:#a9d6eb;padding:.8rem;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;outline:0}.technical-modal textarea:focus{border-color:#45caff}.modal-actions{display:flex;justify-content:flex-end;gap:.6rem;flex-wrap:wrap}.modal-actions button{min-height:38px;padding:0 1rem;border:1px solid rgba(68,166,216,.35);background:#081d2c;color:#8ecfea;cursor:pointer}.modal-actions .primary-action{border-color:#44c9ff;color:#e1f7ff}.modal-actions button:disabled{opacity:.4}.icon-button{width:36px;height:36px;display:grid;place-items:center;border:1px solid rgba(61,165,218,.3);background:rgba(4,19,31,.75);color:#72cfff;cursor:pointer}
   @keyframes spin{to{transform:rotate(360deg)}}
-  @media(max-width:1240px){.topbar{grid-template-columns:185px 145px 105px 175px 1fr 110px 40px 40px}.resource-bar>div{padding:0 .45rem}.command-bar{grid-template-columns:repeat(4,1fr) 120px 180px}.command-bar small{display:none}.game-grid{grid-template-columns:170px minmax(0,1fr) 300px}.game-grid.panel-closed{grid-template-columns:170px minmax(0,1fr) 0}.sidebar button{padding:0 .85rem}}
-  @media(max-width:980px){.game-shell{grid-template-rows:58px minmax(0,1fr) 72px}.topbar{grid-template-columns:50px minmax(150px,1fr) 145px 100px 105px 42px 42px}.mobile-menu{display:grid;place-items:center}.top-logo{border-left:1px solid rgba(62,143,187,.16)}.empire-block,.resource-bar,.turn-progress{display:none}.game-grid,.game-grid.panel-closed{grid-template-columns:minmax(0,1fr) 300px}.sidebar{position:fixed;left:0;top:58px;bottom:72px;width:220px;transform:translateX(-102%);transition:.2s;box-shadow:15px 0 30px rgba(0,0,0,.45)}.sidebar.open{transform:translateX(0)}.command-bar{grid-template-columns:repeat(4,1fr) 160px}.draft-button{display:none!important}.command-bar button{gap:.4rem}.command-bar button>svg{width:22px}.command-bar .submit-button{grid-column:auto}.right-wrap:not(.open){display:none}}
+  @media(max-width:1280px){.topbar{grid-template-columns:180px minmax(125px,1fr) 110px 150px minmax(145px,.8fr) 118px 40px 40px}.turn-progress{display:none}.command-bar{grid-template-columns:repeat(4,1fr) 120px 180px}.command-bar small{display:none}.game-grid{grid-template-columns:170px minmax(0,1fr) 300px}.game-grid.panel-closed{grid-template-columns:170px minmax(0,1fr) 0}.sidebar button{padding:0 .85rem}}
+  @media(max-width:1100px){.game-shell{grid-template-rows:58px minmax(0,1fr) 72px}.topbar{grid-template-columns:48px 64px minmax(125px,1fr) 108px minmax(105px,125px) 40px 40px}.mobile-menu{display:grid;place-items:center}.top-logo{justify-content:center;padding:0 .2rem;border-left:1px solid rgba(62,143,187,.16)}.top-logo :global(.title){display:none!important}.empire-block,.resource-bar,.turn-progress{display:none}.game-grid,.game-grid.panel-closed{grid-template-columns:minmax(0,1fr) 300px}.sidebar{position:fixed;left:0;top:58px;bottom:72px;width:220px;transform:translateX(-102%);transition:.2s;box-shadow:15px 0 30px rgba(0,0,0,.45)}.sidebar.open{transform:translateX(0)}.command-bar{grid-template-columns:repeat(4,1fr) 160px}.draft-button{display:none!important}.command-bar button{gap:.4rem}.command-bar button>svg{width:22px}.command-bar .submit-button{grid-column:auto}.right-wrap:not(.open){display:none}}
   @media(max-width:760px){.topbar{grid-template-columns:46px 1fr 120px 40px}.game-block,.turn-block{display:none}.top-icon:nth-last-child(2){display:none}.game-grid,.game-grid.panel-closed{grid-template-columns:minmax(0,1fr)}.right-wrap{position:fixed;right:0;top:58px;bottom:72px;width:min(330px,88vw);z-index:25;transform:translateX(100%);transition:.2s;box-shadow:-15px 0 35px rgba(0,0,0,.45)}.right-wrap.open{transform:translateX(0)}.right-wrap:not(.open){display:block}.right-wrap:not(.open) :global(.detail-panel){display:block}.panel-toggle{left:-34px;width:34px}.command-bar{grid-template-columns:repeat(4,1fr) 1.2fr;padding:5px;gap:4px}.command-bar button{display:grid;place-items:center}.command-bar button span:not(.submit-ring){display:none}.command-bar button>svg{margin:auto}.submit-button{display:flex!important}.submit-button>span:last-child{display:block!important}.submit-button small{display:none}.sidebar{bottom:72px}}
   @media(max-width:480px){.top-logo :global(.title){font-size:.74rem!important}.command-bar{grid-template-columns:repeat(4,1fr) 1.3fr}.submit-button strong{font-size:.6rem}.game-shell{min-height:560px}}
 </style>

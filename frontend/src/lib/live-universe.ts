@@ -1,12 +1,10 @@
+import { ownerForPlayerId } from './player-colors';
 import type {
   AccountTurnStatusPlayer,
-  Owner,
   RouteLink,
   ServerGameState,
   StarSystem
 } from './types';
-
-const opponentOwners: Owner[] = ['crimson', 'violet', 'amber'];
 
 export interface LiveUniverse {
   systems: StarSystem[];
@@ -22,11 +20,13 @@ export function mapLiveUniverse(
   const serverFleets = Array.isArray(state?.universe?.fleets) ? state.universe.fleets : [];
   const routes = Array.isArray(state?.universe?.routes) ? state.universe.routes : [];
   const playerNames = new Map(players.map((player) => [player.id, player.name]));
-  const opponents = players.filter((player) => player.id !== currentPlayerId).map((player) => player.id);
+  const playerIds = players.map((player) => player.id);
   const systemNames = new Map(serverSystems.map((system) => [system.id, system.name]));
 
   const systems: StarSystem[] = serverSystems.map((system) => {
-    const owner = ownerFor(system.ownerPlayerId, currentPlayerId, opponents);
+    const owner = system.ownerPlayerId === null
+      ? 'neutral'
+      : ownerForPlayerId(system.ownerPlayerId, playerIds);
     const fleets = serverFleets
       .filter((fleet) => fleet.systemId === system.id)
       .map((fleet) => ({
@@ -37,6 +37,7 @@ export function mapLiveUniverse(
         location: system.name,
         destination: fleet.destinationSystemId ? systemNames.get(fleet.destinationSystemId) : undefined,
         ownerPlayerId: fleet.ownerPlayerId,
+        ownerLabel: playerNames.get(fleet.ownerPlayerId) ?? `Player ${fleet.ownerPlayerId}`,
         systemId: fleet.systemId,
         targetSystemId: fleet.destinationSystemId,
         colonizationCapacity: fleet.colonizationCapacity
@@ -63,16 +64,10 @@ export function mapLiveUniverse(
       production: Array.isArray(system.production) ? system.production : [],
       fleets,
       description: system.description,
-      isCapital: system.isCapital === true
+      isCapital: system.isCapital === true,
+      isYours: system.ownerPlayerId === currentPlayerId
     };
   });
 
   return { systems, routes };
-}
-
-function ownerFor(ownerPlayerId: number | null, currentPlayerId: number, opponents: number[]): Owner {
-  if (ownerPlayerId === null) return 'neutral';
-  if (ownerPlayerId === currentPlayerId) return 'player';
-  const index = Math.max(0, opponents.indexOf(ownerPlayerId));
-  return opponentOwners[index % opponentOwners.length];
 }
