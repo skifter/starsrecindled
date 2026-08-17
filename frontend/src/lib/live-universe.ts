@@ -66,6 +66,8 @@ export function mapLiveUniverse(
       description: system.description,
       isCapital: system.isCapital === true,
       sensorRange: Math.max(0, Number(system.sensorRange ?? (system.ownerPlayerId === null ? 0 : 1))),
+      visibilityState: system.visibilityState ?? 'visible',
+      lastSeenTurn: system.lastSeenTurn,
       isYours: system.ownerPlayerId === currentPlayerId
     };
   });

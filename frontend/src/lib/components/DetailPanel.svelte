@@ -20,6 +20,7 @@
   };
 
   $: isYours = system.ownerPlayerId === currentPlayerId;
+  $: isStale = system.visibilityState === 'explored';
   $: playerIds = players.map((player) => player.id);
   $: systemColor = OWNER_COLORS[system.owner];
   $: sensorRange = system.ownerPlayerId === null ? 0 : Math.max(1, Math.min(3, Math.round(system.sensorRange ?? 1)));
@@ -36,13 +37,17 @@
   }
 </script>
 
-<aside class="detail-panel" style={`--system-owner-color:${systemColor}`}>
+<aside class="detail-panel" class:stale={isStale} style={`--system-owner-color:${systemColor}`}>
   <header>
     <div class="system-title"><span class="system-star">✦</span><div><h2>{system.name}</h2><p>{system.isCapital ? 'Core world' : system.className}</p></div></div>
     <div class="owner-state" class:yours={isYours} class:unclaimed={system.ownerPlayerId === null}>
       {isYours ? (system.isCapital ? 'YOUR CAPITAL' : 'YOUR COLONY') : system.ownerPlayerId === null ? 'UNCLAIMED' : `${system.ownerLabel ?? ownerName[system.owner]} COLONY`}
     </div>
   </header>
+
+  {#if isStale}
+    <div class="stale-intel"><Icon name="target" size={16}/><span><strong>LAST KNOWN INTELLIGENCE</strong><small>Sensor contact was last confirmed on turn {system.lastSeenTurn ?? '?'}. Values below may have changed.</small></span></div>
+  {/if}
 
   <div class="world-art" class:neutral={system.ownerPlayerId === null} style={`--world-hue:${system.owner === 'player' ? '198' : system.owner === 'crimson' ? '8' : system.owner === 'violet' ? '280' : '42'}`}>
     <div class="sensor-world"><PlanetSensorVisual color={systemColor} {sensorRange} size={116} neutral={system.ownerPlayerId === null} label={system.name}/></div><div class="horizon"></div><div class="city"><i></i><i></i><i></i><i></i><i></i></div>
@@ -128,6 +133,7 @@
 <style>
   .detail-panel{height:100%;overflow-y:auto;background:linear-gradient(180deg,rgba(5,19,33,.98),rgba(2,10,18,.98));border-left:1px solid rgba(55,162,218,.3);color:#b8cad7;scrollbar-color:#225d7d #07121d}
   header{min-height:64px;display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:0 1rem;border-bottom:1px solid rgba(64,169,224,.22)}
+  .stale-intel{display:flex;align-items:center;gap:.55rem;padding:.55rem .8rem;border-bottom:1px solid rgba(112,137,153,.2);background:rgba(31,42,50,.38);color:#8295a2}.stale-intel span,.stale-intel strong,.stale-intel small{display:block}.stale-intel strong{color:#9eacb5;font-size:.58rem;letter-spacing:.08em}.stale-intel small{margin-top:.12rem;color:#6f818d;font-size:.55rem;line-height:1.35}.detail-panel.stale .world-art{filter:saturate(.45) brightness(.68)}
   .system-title{display:flex;align-items:center;gap:.65rem;min-width:0}.system-title>div{min-width:0}.system-title h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f0f9ff;font-size:1.2rem;letter-spacing:.08em;text-transform:uppercase}.system-title p{margin:.15rem 0 0;color:#8199aa;font-size:.73rem}.system-star{color:var(--system-owner-color);font-size:1.6rem;text-shadow:0 0 12px var(--system-owner-color)}
   .owner-state{flex:none;padding:.28rem .45rem;border:1px solid var(--system-owner-color);color:var(--system-owner-color);background:rgba(92,20,18,.18);font-size:.54rem;font-weight:700;letter-spacing:.06em;white-space:nowrap}.owner-state.yours{background:rgba(13,73,101,.3)}.owner-state.unclaimed{border-style:dashed;color:#b7cbd8;background:rgba(60,74,84,.18)}
   .world-art{height:146px;position:relative;overflow:hidden;background:radial-gradient(circle at 72% 28%,hsla(var(--world-hue),75%,72%,.6) 0 4%,transparent 18%),linear-gradient(180deg,hsl(var(--world-hue),55%,31%),hsl(var(--world-hue),55%,10%) 70%);border-bottom:1px solid rgba(62,164,218,.22)}.world-art::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 28% 20%,rgba(255,255,255,.7) 0 .6px,transparent .9px),radial-gradient(circle at 58% 33%,rgba(255,255,255,.6) 0 .5px,transparent .8px);background-size:39px 31px,53px 47px;opacity:.6}.world-art.neutral{filter:saturate(.35)}.sensor-world{position:absolute;right:12px;top:4px;width:122px;height:122px;display:grid;place-items:center;z-index:2}.horizon{position:absolute;left:-10%;right:-10%;height:72px;bottom:-38px;border-radius:50% 50% 0 0;background:linear-gradient(180deg,hsl(var(--world-hue),42%,32%),#071019);box-shadow:0 -4px 20px hsla(var(--world-hue),70%,60%,.35)}.city{position:absolute;bottom:26px;left:28px;right:100px;display:flex;gap:9px;align-items:end}.city i{width:14px;height:38px;background:linear-gradient(90deg,#102b3c,#32637a,#0b1f2e);clip-path:polygon(35% 0,65% 0,75% 25%,100% 30%,100% 100%,0 100%,0 30%,25% 25%);box-shadow:0 0 8px hsla(var(--world-hue),90%,65%,.4)}.city i:nth-child(2){height:72px}.city i:nth-child(3){height:52px}.city i:nth-child(4){height:82px}.city i:nth-child(5){height:45px}.world-art>span{position:absolute;left:10px;bottom:8px;font-size:.65rem;color:#d5efff;text-transform:uppercase;letter-spacing:.12em}

@@ -9,6 +9,7 @@ use Bellcom\StarsTurnBundle\Repository\PlayerTurnRepository;
 use Bellcom\StarsTurnBundle\Repository\TurnRepository;
 use Bellcom\StarsTurnBundle\Security\PlayerTokenAuthenticator;
 use Bellcom\StarsTurnBundle\Service\PlayerVisibilityService;
+use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,6 +25,7 @@ final class TurnApiController extends AbstractController
         private readonly PlayerTurnRepository $playerTurnRepository,
         private readonly TurnSubmissionService $submissionService,
         private readonly PlayerVisibilityService $visibility,
+        private readonly Connection $connection,
     ) {
     }
 
@@ -57,23 +59,10 @@ final class TurnApiController extends AbstractController
         if ($playerId === null) {
             throw new \LogicException('Den autentificerede spiller mangler id.');
         }
-        $projection = $this->visibility->project($turn->getInitialState(), $playerId);
 
-        $previousReport = null;
-        if ($turnNumber > 1) {
-            $previousTurn = $this->turnRepository->findForGameAndNumber($gameId, $turnNumber - 1);
-            if ($previousTurn !== null) {
-                $reports = $previousTurn->getPlayerReports();
-                $playerReport = $reports[(string) $playerId] ?? null;
-                $resultState = $previousTurn->getResultState();
-                $previousReport = [
-                    'turn_number' => $previousTurn->getNumber(),
-                    'year' => is_array($resultState) && is_numeric($resultState['year'] ?? null) ? (int) $resultState['year'] : null,
-                    'published_at' => $previousTurn->getPublishedAt()?->format(DATE_ATOM),
-                    'data' => is_array($playerReport) ? $playerReport : null,
-                ];
-            }
-        }
+        $history = $this->visibilityHistory($gameId, $turnNumber);
+        $projection = $this->visibility->project($turn->getInitialState(), $playerId, $history, $turnNumber);
+        $previousReport = $this->previousPublishedReport($gameId, $turnNumber, $playerId);
 
         return $this->json([
             'game' => [
@@ -93,13 +82,16 @@ final class TurnApiController extends AbstractController
                 'sensor_system_ids' => $projection['sensorSystemIds'],
                 'visible_enemy_fleets' => $projection['visibleEnemyFleetCount'],
                 'colony_sensor_ranges' => $projection['colonySensorRanges'],
+                'systems' => $projection['systemVisibility'],
+                'known_system_ids' => $projection['knownSystemIds'],
+                'unknown_system_count' => $projection['unknownSystemCount'],
             ],
             'previous_report' => $previousReport,
             'players' => $players,
             'you' => [
                 'id' => $playerId,
                 'name' => $player->getDisplayName(),
-                'orders' => $ownTurn?->getOrders() ?? [],
+                'orders' => $this->normalizeOrders($ownTurn?->getOrders() ?? []),
                 'submitted' => $ownTurn?->getSubmittedAt() !== null,
             ],
         ]);
@@ -176,5 +168,117 @@ final class TurnApiController extends AbstractController
         }
 
         return $this->json(['reopened' => true]);
+    }
+
+    /** @param array<string,mixed> $orders @return array<string,mixed> */
+    private function normalizeOrders(array $orders): array
+    {
+        $orders['fleets'] = is_array($orders['fleets'] ?? null) ? array_values($orders['fleets']) : [];
+        $orders['production'] = is_array($orders['production'] ?? null) ? array_values($orders['production']) : [];
+
+        return $orders;
+    }
+
+    /** @return list<array{turnNumber:int,state:array<string,mixed>}> */
+    private function visibilityHistory(int $gameId, int $turnNumber): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            <<<'SQL'
+SELECT turn_number, initial_state, result_state
+FROM stars_turn
+WHERE game_id = :gameId
+  AND turn_number < :turnNumber
+  AND status = 'published'
+ORDER BY turn_number ASC
+SQL,
+            ['gameId' => $gameId, 'turnNumber' => $turnNumber],
+        );
+
+        $history = [];
+        foreach ($rows as $row) {
+            $historicalTurn = max(1, (int) ($row['turn_number'] ?? 1));
+            foreach (['initial_state', 'result_state'] as $column) {
+                $state = $this->decodeJsonArray($row[$column] ?? null);
+                if ($state !== []) {
+                    $history[] = ['turnNumber' => $historicalTurn, 'state' => $state];
+                }
+            }
+        }
+
+        return $history;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function previousPublishedReport(int $gameId, int $turnNumber, int $playerId): ?array
+    {
+        $row = $this->connection->fetchAssociative(
+            <<<'SQL'
+SELECT turn_number, initial_state, result_state, player_reports, published_at
+FROM stars_turn
+WHERE game_id = :gameId
+  AND turn_number < :turnNumber
+  AND status = 'published'
+ORDER BY turn_number DESC
+LIMIT 1
+SQL,
+            ['gameId' => $gameId, 'turnNumber' => $turnNumber],
+        );
+
+        if ($row === false) {
+            return null;
+        }
+
+        $reports = $this->decodeJsonArray($row['player_reports'] ?? null);
+        $playerReport = $reports[(string) $playerId] ?? $reports[$playerId] ?? null;
+        $data = is_array($playerReport) ? $playerReport : [];
+
+        $initialState = $this->decodeJsonArray($row['initial_state'] ?? null);
+        $resultState = $this->decodeJsonArray($row['result_state'] ?? null);
+        if ($initialState !== [] && $resultState !== []) {
+            $data['sightings'] = $this->visibility->contactEvents($initialState, $resultState, $playerId);
+        } else {
+            $data['sightings'] ??= [];
+        }
+
+        $year = is_numeric($resultState['year'] ?? null) ? (int) $resultState['year'] : null;
+
+        return [
+            'turn_number' => max(1, (int) ($row['turn_number'] ?? 1)),
+            'year' => $year,
+            'published_at' => $this->publishedAt($row['published_at'] ?? null),
+            'data' => $data,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function decodeJsonArray(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function publishedAt(mixed $value): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))->format(DATE_ATOM);
+        } catch (\Exception) {
+            return $value;
+        }
     }
 }

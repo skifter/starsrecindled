@@ -2,6 +2,7 @@ export type AppScreen = 'login' | 'lobby' | 'game';
 export type GameSection = 'players' | 'galaxy' | 'planets' | 'fleets' | 'research' | 'diplomacy' | 'report';
 export type Owner = 'player' | 'neutral' | 'crimson' | 'violet' | 'amber';
 export type AccountAuthMode = 'web' | 'direct';
+export type VisibilityState = 'visible' | 'explored';
 
 export interface ConnectionSettings {
   apiBase: string;
@@ -122,6 +123,8 @@ export interface StarSystem {
   description: string;
   isCapital?: boolean;
   sensorRange?: number;
+  visibilityState?: VisibilityState;
+  lastSeenTurn?: number;
 }
 
 export interface RouteLink {
@@ -183,6 +186,8 @@ export interface ServerSystemState {
   description: string;
   isCapital?: boolean;
   sensorRange?: number;
+  visibilityState?: VisibilityState;
+  lastSeenTurn?: number;
 }
 
 export interface ServerUniverseState {
@@ -223,10 +228,18 @@ export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
   orders: PlayerOrders;
 }
 
+export interface AccountVisibilitySystem {
+  state: VisibilityState;
+  last_seen_turn: number;
+}
+
 export interface AccountVisibility {
   sensor_system_ids: string[];
   visible_enemy_fleets: number;
   colony_sensor_ranges?: Record<string, number>;
+  systems?: Record<string, AccountVisibilitySystem>;
+  known_system_ids?: string[];
+  unknown_system_count?: number;
 }
 
 export interface TurnReportMovement {
@@ -247,11 +260,22 @@ export interface TurnReportProduction {
   industryCost: number;
 }
 
+
+export interface TurnReportSighting {
+  type: 'detected' | 'lost';
+  fleetId: string;
+  fleetName?: string;
+  systemId?: string | null;
+  ownerPlayerId?: number;
+  ships?: number;
+}
+
 export interface TurnReportData {
   message?: string;
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];
+  sightings?: TurnReportSighting[];
   warnings?: string[];
   orders?: PlayerOrders;
 }

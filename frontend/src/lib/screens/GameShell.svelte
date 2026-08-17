@@ -439,6 +439,7 @@
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           planningFleetId={planningFleetCurrent?.id ?? ''}
           {validDestinationIds}
+          sensorSystemIds={status?.visibility?.sensor_system_ids ?? []}
           liveMode={!demoMode}
           onSelect={selectSystem}
           onSelectFleet={(fleet, system) => beginWaypointForFleet(fleet, system)}

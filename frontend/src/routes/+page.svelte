@@ -29,6 +29,7 @@
   const directTokenKey = 'stars.clientToken';
   const directApiBaseKey = 'stars.clientApiBase';
   const pendingInvitationKey = 'stars.pendingInvitation';
+  const legacyOrdersKey = 'stars.orders';
 
   let screen: AppScreen = 'login';
   let connection: ConnectionSettings = { ...defaultConnection };
@@ -63,15 +64,8 @@
       sessionStorage.setItem(pendingInvitationKey, invitationFromLink);
       invitationNotice = 'Game invitation detected. Log in or create an account with the invited email address.';
     }
-    const savedOrders = localStorage.getItem('stars.orders');
-    if (savedOrders) {
-      try {
-        const parsed = JSON.parse(savedOrders) as PlayerOrders;
-        if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) orders = parsed;
-      } catch {
-        localStorage.removeItem('stars.orders');
-      }
-    }
+    // 0.6.0 isolates local drafts by game, player and turn. Never reuse the old global order key.
+    localStorage.removeItem(legacyOrdersKey);
 
     if (params.get('demo') === '1') {
       openDemo();
@@ -276,10 +270,42 @@
     screen = 'login';
   }
 
+  function ordersStorageKey(settings: ConnectionSettings = connection): string {
+    return `stars.orders.${settings.gameId}.${settings.playerId}.${settings.turnNumber}`;
+  }
+
+  function emptyOrders(): PlayerOrders {
+    return { fleets: [], production: [] };
+  }
+
+  function restoreLocalOrdersForConnection(): void {
+    const saved = localStorage.getItem(ordersStorageKey());
+    if (!saved) {
+      orders = emptyOrders();
+      ordersDirty = false;
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as PlayerOrders;
+      if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) {
+        orders = parsed;
+        ordersDirty = true;
+        return;
+      }
+    } catch {
+      // Remove an invalid per-turn local draft and fall back to the server copy.
+    }
+
+    localStorage.removeItem(ordersStorageKey());
+    orders = emptyOrders();
+    ordersDirty = false;
+  }
+
   function setOrders(next: PlayerOrders, dirty: boolean): void {
     orders = next;
     ordersDirty = dirty;
-    localStorage.setItem('stars.orders', JSON.stringify(next));
+    localStorage.setItem(ordersStorageKey(), JSON.stringify(next));
   }
 
   function updateOrders(next: PlayerOrders): void {
@@ -314,7 +340,11 @@
   function syncOrdersFromStatus(nextStatus: AccountTurnStatus, force = false): void {
     if (ordersDirty && !force) return;
     const parsed = nextStatus.you.orders;
-    if (Array.isArray(parsed.fleets) && Array.isArray(parsed.production)) setOrders(parsed, false);
+    setOrders({
+      ...parsed,
+      fleets: Array.isArray(parsed?.fleets) ? parsed.fleets : [],
+      production: Array.isArray(parsed?.production) ? parsed.production : []
+    }, false);
   }
 
   function moveToServerTurn(turnNumber: number): void {
@@ -328,6 +358,10 @@
         games: profile.games.map((game) => game.gameId === connection.gameId ? { ...game, turnNumber } : game)
       };
     }
+
+    // A new turn always starts with its own local draft namespace.
+    orders = emptyOrders();
+    ordersDirty = false;
   }
 
   async function loadStatus(silent = false): Promise<boolean> {
@@ -372,7 +406,7 @@
     };
     demoMode = false;
     status = null;
-    ordersDirty = false;
+    restoreLocalOrdersForConnection();
     const connected = await loadStatus();
     if (connected) screen = 'game';
     else accountMessage = apiMessage;
