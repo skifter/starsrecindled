@@ -33,16 +33,40 @@ final class DemoTurnEngine implements TurnEngineInterface
             : [];
 
         $systemIds = [];
+        $startingOwners = [];
         foreach ($systems as $index => $system) {
             if (is_array($system) && is_string($system['id'] ?? null)) {
-                $systemIds[(string) $system['id']] = $index;
+                $systemId = (string) $system['id'];
+                $systemIds[$systemId] = $index;
+                $startingOwners[$systemId] = isset($system['ownerPlayerId']) && is_numeric($system['ownerPlayerId'])
+                    ? (int) $system['ownerPlayerId']
+                    : null;
             }
+        }
+
+        // Colonies receive their resource income once per generated turn. Resource
+        // value acts as the current stockpile, while income is the per-turn amount.
+        foreach ($systems as $index => $system) {
+            if (!is_array($system) || ($system['ownerPlayerId'] ?? null) === null) {
+                continue;
+            }
+
+            $resources = is_array($system['resources'] ?? null) ? $system['resources'] : [];
+            foreach ($resources as $resourceIndex => $resource) {
+                if (!is_array($resource)) {
+                    continue;
+                }
+                $resources[$resourceIndex]['value'] = max(0, (int) ($resource['value'] ?? 0))
+                    + max(0, (int) ($resource['income'] ?? 0));
+            }
+            $systems[$index]['resources'] = array_values($resources);
         }
 
         $reports = [];
         foreach ($submittedOrders as $playerId => $orders) {
             $movements = [];
             $colonizations = [];
+            $productions = [];
             $warnings = [];
             $movedFleetIds = [];
             $fleetOrders = is_array($orders['fleets'] ?? null) ? $orders['fleets'] : [];
@@ -165,6 +189,83 @@ final class DemoTurnEngine implements TurnEngineInterface
                 ];
             }
 
+            $productionOrders = is_array($orders['production'] ?? null) ? $orders['production'] : [];
+            $buildSequence = 0;
+            foreach ($productionOrders as $productionOrder) {
+                if (!is_array($productionOrder)) {
+                    continue;
+                }
+
+                $systemId = is_string($productionOrder['systemId'] ?? null) ? $productionOrder['systemId'] : '';
+                $item = is_string($productionOrder['item'] ?? null) ? trim($productionOrder['item']) : '';
+                $quantity = max(1, min(10, (int) ($productionOrder['quantity'] ?? 1)));
+                $definition = $this->productionDefinition($item);
+
+                if ($systemId === '' || $item === '' || $definition === null) {
+                    $warnings[] = sprintf('Ukendt eller ugyldig produktionsordre: %s.', $item !== '' ? $item : 'tom ordre');
+                    continue;
+                }
+                if (($startingOwners[$systemId] ?? null) !== (int) $playerId) {
+                    $warnings[] = sprintf('Produktion i %s kræver, at systemet var din koloni ved rundens start.', $systemId);
+                    continue;
+                }
+
+                $systemIndex = $systemIds[$systemId] ?? null;
+                if (!is_int($systemIndex) || !isset($systems[$systemIndex]) || !is_array($systems[$systemIndex])) {
+                    $warnings[] = sprintf('Produktionssystemet %s findes ikke.', $systemId);
+                    continue;
+                }
+
+                for ($unit = 0; $unit < $quantity; ++$unit) {
+                    $industryIndex = $this->findResourceIndex($systems[$systemIndex], 'industry');
+                    if ($industryIndex === null) {
+                        $warnings[] = sprintf('%s har ingen industry-ressource.', $systemId);
+                        break;
+                    }
+
+                    $available = (int) ($systems[$systemIndex]['resources'][$industryIndex]['value'] ?? 0);
+                    if ($available < $definition['cost']) {
+                        $warnings[] = sprintf(
+                            '%s mangler industry til %s: %d tilgængelig, %d kræves.',
+                            (string) ($systems[$systemIndex]['name'] ?? $systemId),
+                            $item,
+                            $available,
+                            $definition['cost'],
+                        );
+                        break;
+                    }
+
+                    $systems[$systemIndex]['resources'][$industryIndex]['value'] = $available - $definition['cost'];
+                    ++$buildSequence;
+
+                    if ($item === 'Scout Wing') {
+                        $fleets[] = [
+                            'id' => sprintf('fleet-%s-built-%d-%d', $playerId, $turn->getNumber() + 1, $buildSequence),
+                            'ownerPlayerId' => (int) $playerId,
+                            'systemId' => $systemId,
+                            'name' => sprintf('%s Scout Wing %d', (string) ($systems[$systemIndex]['name'] ?? 'Colony'), $buildSequence),
+                            'ships' => 40,
+                            'role' => 'Scout fleet',
+                            'colonizationCapacity' => 0,
+                        ];
+                    } elseif ($item === 'Defense Grid') {
+                        $systems[$systemIndex]['defenses'] = max(0, (int) ($systems[$systemIndex]['defenses'] ?? 0)) + 250;
+                    } elseif ($item === 'Orbital Factory') {
+                        $systems[$systemIndex]['development'] = min(100, max(0, (int) ($systems[$systemIndex]['development'] ?? 0)) + 10);
+                        $systems[$systemIndex]['resources'][$industryIndex]['income'] = max(
+                            0,
+                            (int) ($systems[$systemIndex]['resources'][$industryIndex]['income'] ?? 0),
+                        ) + 8;
+                    }
+
+                    $productions[] = [
+                        'systemId' => $systemId,
+                        'item' => $item,
+                        'industryCost' => $definition['cost'],
+                    ];
+                }
+            }
+
             $parts = [];
             if (count($movements) > 0) {
                 $parts[] = sprintf('%d flådebevægelse(r)', count($movements));
@@ -172,13 +273,17 @@ final class DemoTurnEngine implements TurnEngineInterface
             if (count($colonizations) > 0) {
                 $parts[] = sprintf('%d kolonisering(er)', count($colonizations));
             }
+            if (count($productions) > 0) {
+                $parts[] = sprintf('%d produktion(er)', count($productions));
+            }
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen flådebevægelser eller koloniseringer blev udført i denne runde.'
-                    : ucfirst(implode(' og ', $parts)).' blev udført.',
+                    ? 'Ingen flådebevægelser, koloniseringer eller produktioner blev udført i denne runde.'
+                    : ucfirst(implode(', ', $parts)).' blev udført.',
                 'movements' => $movements,
                 'colonizations' => $colonizations,
+                'productions' => $productions,
                 'warnings' => $warnings,
                 'orders' => $orders,
             ];
@@ -200,6 +305,30 @@ final class DemoTurnEngine implements TurnEngineInterface
         }
 
         return null;
+    }
+
+    /** @param array<string, mixed> $system */
+    private function findResourceIndex(array $system, string $resourceId): ?int
+    {
+        $resources = is_array($system['resources'] ?? null) ? $system['resources'] : [];
+        foreach ($resources as $index => $resource) {
+            if (is_array($resource) && ($resource['id'] ?? null) === $resourceId) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array{cost:int}|null */
+    private function productionDefinition(string $item): ?array
+    {
+        return match ($item) {
+            'Scout Wing' => ['cost' => 300],
+            'Defense Grid' => ['cost' => 250],
+            'Orbital Factory' => ['cost' => 400],
+            default => null,
+        };
     }
 
     /** @param array<string, mixed> $fleet */

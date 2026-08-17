@@ -4,6 +4,7 @@
   import AccountLobby from '$lib/screens/AccountLobby.svelte';
   import GameShell from '$lib/screens/GameShell.svelte';
   import LoginScreen from '$lib/screens/LoginScreen.svelte';
+  import { APP_VERSION } from '$lib/version';
   import type {
     AccountGameAccess,
     AccountLoginInput,
@@ -486,3 +487,24 @@
     onExit={exitGame}
   />
 {/if}
+
+{#if screen !== 'game'}
+  <div class="front-version">Stars Rekindled <strong>v{APP_VERSION}</strong></div>
+{/if}
+
+<style>
+  .front-version {
+    position: fixed;
+    right: 18px;
+    bottom: 12px;
+    z-index: 60;
+    padding: .3rem .48rem;
+    border: 1px solid rgba(72, 190, 238, .18);
+    background: rgba(2, 10, 18, .72);
+    color: #66889b;
+    font: 500 .61rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+    letter-spacing: .05em;
+    pointer-events: none;
+  }
+  .front-version strong { color: #58caff; font-weight: 500; }
+</style>

@@ -1,10 +1,12 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import type { RouteLink, StarSystem } from '../types';
+  import type { AccountTurnStatusPlayer, RouteLink, StarSystem } from '../types';
 
   export let systems: StarSystem[] = [];
   export let routes: RouteLink[] = [];
   export let plannedRoutes: RouteLink[] = [];
+  export let players: AccountTurnStatusPlayer[] = [];
+  export let currentPlayerId = 0;
   export let selectedId = '';
   export let liveMode = false;
   export let onSelect: (system: StarSystem) => void;
@@ -27,6 +29,17 @@
   function starPoint(id: string): { x: number; y: number } {
     const system = byId.get(id);
     return { x: (system?.x ?? 0) * 10, y: (system?.y ?? 0) * 6.2 };
+  }
+
+  function playerOwner(playerId: number): string {
+    if (playerId === currentPlayerId) return 'player';
+    return systems.find((system) => system.ownerPlayerId === playerId)?.owner ?? 'crimson';
+  }
+
+  function systemStatus(system: StarSystem): string {
+    if (system.owner === 'neutral') return 'UNCLAIMED';
+    if (system.owner === 'player') return system.isCapital ? 'YOUR CAPITAL' : 'YOUR COLONY';
+    return (system.ownerLabel ?? 'OTHER PLAYER').toUpperCase();
   }
 
   function handleWheel(event: WheelEvent): void {
@@ -145,13 +158,17 @@
           onkeydown={(event) => selectSystem(event, system)}
         >
           {#if selectedId === system.id}
-            <circle class="selection-ring outer" r="35" /><circle class="selection-ring middle" r="25" /><circle class="selection-ring pulse" r="17" />
+            <circle class="selection-ring outer" r="36" /><circle class="selection-ring middle" r="27" /><circle class="selection-ring pulse" r="19" />
+          {/if}
+          {#if liveMode}
+            <circle class="ownership-orbit" class:unclaimed={system.owner === 'neutral'} r={system.isCapital ? 15 : 12} />
           {/if}
           <circle class="star-glow" r={system.isCapital ? 17 : 12} />
-          <circle class="star" r={system.isCapital ? 5.5 : 4} />
+          <circle class="star" class:colonized={liveMode && system.owner !== 'neutral'} r={system.isCapital ? 5.5 : 4} />
           {#if system.isCapital}<path class="capital" d="M-8-15 0-23 8-15 5-8-5-8Z" />{/if}
           {#if system.fleets.length > 0}<path class="fleet-marker" d="M14 -12 23-8 16-4 18 0 11-4Z" />{/if}
           <text class="system-label" y="20" text-anchor="middle">{system.name.toUpperCase()}</text>
+          {#if liveMode}<text class="system-status" y="31" text-anchor="middle">{systemStatus(system)}</text>{/if}
         </g>
       {/each}
 
@@ -175,7 +192,19 @@
     <div class="empty-universe"><strong>No server galaxy</strong><span>This game predates the 0.5.1 universe generator. Create a new game to test live galaxy gameplay.</span></div>
   {/if}
 
-  <div class="map-legend"><span class="friendly">{liveMode ? 'Yours' : 'Dominion'}</span><span class="neutral">Unclaimed</span><span class="hostile-dot">{liveMode ? 'Other player' : 'Hostile'}</span></div>
+  <div class="map-legend">
+    {#if liveMode}
+      {#each players as player}
+        <span class="legend-entry" style={`--legend-color:${ownerColor[playerOwner(player.id)]}`}>
+          <i></i>{player.name}{player.id === currentPlayerId ? ' (you)' : ''}
+        </span>
+      {/each}
+      <span class="legend-entry unclaimed-entry"><i></i>Unclaimed</span>
+      <span class="legend-hint"><b>solid</b> colony · <b>dotted</b> unclaimed</span>
+    {:else}
+      <span class="friendly">Dominion</span><span class="neutral">Unclaimed</span><span class="hostile-dot">Hostile</span>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -189,12 +218,12 @@
   .system { color: var(--system-color); cursor: pointer; outline: none; }
   .system:focus-visible .selection-ring, .system:hover .star-glow { opacity: 1; }
   .star-glow { fill: url(#starCore); color: var(--system-color); opacity: .7; filter: url(#glow); transition: .15s; }
-  .star { fill: #fff; stroke: var(--system-color); stroke-width: 2; filter: url(#glow); }
+  .ownership-orbit { fill: color-mix(in srgb,var(--system-color) 16%,transparent); stroke:var(--system-color);stroke-width:3;opacity:.9 }.ownership-orbit.unclaimed{fill:transparent;stroke:#dcecff;stroke-width:1.4;stroke-dasharray:2.5 3;opacity:.7}.star { fill: #fff; stroke: var(--system-color); stroke-width: 2; filter: url(#glow); }.star.colonized{fill:var(--system-color);stroke:#f1fbff;stroke-width:1.4}
   .system-label { fill: #b9cbd8; font-size: 10px; letter-spacing: .9px; paint-order: stroke; stroke: #02070e; stroke-width: 3px; stroke-linejoin: round; }
-  .selected .system-label { fill: #edfaff; font-weight: 700; }
-  .selection-ring { fill: none; stroke: #52ceff; stroke-width: 1.6; opacity: .9; }.selection-ring.middle { stroke-dasharray: 5 4; }.selection-ring.outer { opacity: .35; }.selection-ring.pulse { animation: pulse 2s infinite; }
+  .selected .system-label { fill: #edfaff; font-weight: 700; }.system-status{fill:var(--system-color);font-size:6.6px;font-weight:700;letter-spacing:.8px;paint-order:stroke;stroke:#02070e;stroke-width:2.5px}.system .system-status{opacity:.92}
+  .selection-ring { fill: none; stroke: #ffd05c; stroke-width: 1.6; opacity: .95; }.selection-ring.middle { stroke-dasharray: 5 4; }.selection-ring.outer { opacity: .35; }.selection-ring.pulse { animation: pulse 2s infinite; }
   .capital { fill: #ffd36b; stroke: #fff0b9; stroke-width: .7; filter: url(#glow); }
-  .fleet-marker { fill: #48caff; stroke: #d9f6ff; stroke-width: .7; }
+  .fleet-marker { fill: var(--system-color); stroke: #f4fbff; stroke-width: .7; filter:url(#glow) }
   .scan-marker circle, .scan-marker path { fill: none; stroke: #54d1ff; stroke-width: 1; opacity: .65; }
   .map-controls { position: absolute; left: 14px; bottom: 116px; display: grid; gap: 5px; }
   .map-controls button { width: 38px; height: 38px; display: grid; place-items: center; color: #84d9ff; border: 1px solid rgba(66,176,231,.4); background: rgba(3,16,29,.9); cursor: pointer; }
@@ -202,7 +231,7 @@
   .minimap { position: absolute; left: 14px; bottom: 14px; width: 180px; height: 90px; border: 1px solid rgba(69,178,232,.42); background: rgba(1,8,15,.9); padding: 5px; }
   .minimap svg { cursor: default; }.minimap .mini { stroke-width: .5; fill-opacity: .12; }.minimap .player { fill: #35c0ff; stroke: #35c0ff; }.minimap .crimson { fill: #ff5f58; stroke: #ff5f58; }.minimap .violet { fill: #c864ef; stroke: #c864ef; }.minimap .amber { fill: #f0ae39; stroke: #f0ae39; }.minimap rect { fill: none; stroke: #fff; stroke-width: 1; opacity: .7; }
   .minimap span { position: absolute; right: 7px; bottom: 4px; color: #7fb5d1; font-size: 9px; }
-  .map-legend { position: absolute; top: 12px; left: 14px; display: flex; gap: .8rem; padding: .5rem .7rem; background: rgba(2,10,18,.72); border: 1px solid rgba(65,159,210,.18); color: #7893a5; font-size: .68rem; }
+  .map-legend { position: absolute; top: 12px; left: 14px; display: flex; align-items:center; flex-wrap:wrap; gap: .75rem; max-width:calc(100% - 28px); padding: .5rem .7rem; background: rgba(2,10,18,.82); border: 1px solid rgba(65,159,210,.25); color: #9ab0bf; font-size: .68rem; }.legend-entry{display:inline-flex;align-items:center;gap:.35rem;color:#c2d2dc}.legend-entry i{width:9px;height:9px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 9px var(--legend-color)}.unclaimed-entry i{background:#dcecff;box-shadow:none;border:1px dashed #fff}.legend-hint{padding-left:.65rem;border-left:1px solid rgba(100,160,190,.25);color:#6f899a;font-size:.6rem}.legend-hint b{color:#9bb7c8;font-weight:500}
   .empty-universe { position:absolute; inset:0; display:grid; place-content:center; gap:.5rem; padding:2rem; text-align:center; pointer-events:none; background:radial-gradient(circle at 50% 45%,rgba(21,88,121,.16),transparent 30%); }.empty-universe strong{color:#dff6ff;font-size:1rem;letter-spacing:.08em;text-transform:uppercase}.empty-universe span{max-width:520px;color:#7894a7;font-size:.75rem;line-height:1.55}
   .map-legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: .35rem; }.friendly::before { background:#43c9ff; box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d; box-shadow:0 0 8px #ff645d }
   @keyframes pulse { 0%,100% { r:17; opacity:.8 } 50% { r:24; opacity:.12 } }

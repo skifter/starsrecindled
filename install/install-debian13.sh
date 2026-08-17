@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 027
 IFS=$'\n\t'
 
-SCRIPT_VERSION="2026-08-16.3"
+SCRIPT_VERSION="2026-08-17.1"
 CURRENT_STEP="initialisering"
 
 APP_NAME="stars"
@@ -21,6 +21,7 @@ SYMFONY_VERSION="${SYMFONY_VERSION:-7.4.*}"
 
 DOMAIN="${DOMAIN:-}"
 ENABLE_TLS="${ENABLE_TLS:-0}"
+EXISTING_TLS="0"
 LE_EMAIL="${LE_EMAIL:-}"
 MAILER_DSN="${MAILER_DSN:-smtp://sogo.bellcom.dk:25?require_tls=true}"
 STARS_MAILER_FROM="${STARS_MAILER_FROM:-js@bellcom.dk}"
@@ -295,6 +296,15 @@ if [[ "${ENABLE_TLS}" == "1" ]]; then
     [[ -n "${LE_EMAIL}" ]] || die "LE_EMAIL kræves, når ENABLE_TLS=1."
     [[ "${DOMAIN}" != *":"* ]] || die "DOMAIN må ikke indeholde portnummer."
     [[ ! "${DOMAIN}" =~ ^[0-9.]+$ ]] || die "Let's Encrypt kræver et domænenavn, ikke en IPv4-adresse."
+fi
+
+# En opgradering må ikke fjerne en eksisterende HTTPS-vhost blot fordi
+# ENABLE_TLS ikke blev angivet igen. Bevar derfor en fungerende 443-konfiguration.
+if [[ -f "${NGINX_SITE}" ]]     && grep -Eq '^[[:space:]]*listen[[:space:]].*443.*ssl' "${NGINX_SITE}"     && grep -Fq "server_name ${DOMAIN}" "${NGINX_SITE}"; then
+    EXISTING_TLS="1"
+fi
+if [[ "${ENABLE_TLS}" == "0" && "${EXISTING_TLS}" == "1" ]]; then
+    log "Bevarer eksisterende HTTPS-konfiguration for ${DOMAIN}."
 fi
 
 validate_identifier "${DB_NAME}" "DB_NAME"
@@ -624,7 +634,7 @@ chown "${APP_USER}:${APP_GROUP}" "${RELEASE_ROOT}/config/packages/stars_doctrine
 chmod 0644 "${RELEASE_ROOT}/config/packages/stars_doctrine.yaml"
 
 DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?charset=utf8mb4"
-if [[ "${ENABLE_TLS}" == "1" ]]; then
+if [[ "${ENABLE_TLS}" == "1" || "${EXISTING_TLS}" == "1" ]]; then
     FRONTEND_URL="https://${DOMAIN}"
 else
     FRONTEND_URL="http://${DOMAIN}"
@@ -712,7 +722,12 @@ systemctl restart "${FPM_SERVICE}"
 test -S "${FPM_SOCKET}"
 
 CURRENT_STEP="konfiguration og validering af nginx"
-cat > "${NGINX_SITE}" <<EOF_NGINX
+if [[ "${EXISTING_TLS}" == "1" && "${ENABLE_TLS}" == "0" ]]; then
+    log "Bevarer eksisterende nginx-site med HTTPS."
+    # PHP kan være blevet opgraderet. Ret kun Stars FPM-socketten i den bevarede vhost.
+    sed -i -E "s#fastcgi_pass[[:space:]]+unix:/run/php/php[^;]+;#fastcgi_pass unix:${FPM_SOCKET};#g" "${NGINX_SITE}"
+else
+    cat > "${NGINX_SITE}" <<EOF_NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -723,7 +738,6 @@ server {
     index index.html;
 
     client_max_body_size 8m;
-
     location ^~ /stars/ {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME ${APP_ROOT}/public/index.php;
@@ -743,6 +757,7 @@ server {
 
 }
 EOF_NGINX
+fi
 chmod 0644 "${NGINX_SITE}"
 
 CURRENT_STEP="Symfony-validering og databasemigration"
@@ -885,7 +900,9 @@ if [[ "${ENABLE_TLS}" == "1" ]]; then
         --redirect \
         --email "${LE_EMAIL}" \
         --domains "${DOMAIN}"
-
+fi
+if [[ "${ENABLE_TLS}" == "1" || "${EXISTING_TLS}" == "1" ]]; then
+    CURRENT_STEP="HTTPS-funktionstest"
     curl \
         --fail-with-body \
         --silent \
@@ -925,5 +942,5 @@ printf '\nOpret et testspil med:\n'
 printf '  cd %q\n' "${APP_ROOT}"
 printf '  sudo -u %q APP_ENV=prod %q bin/console stars:game:create \\\n' "${APP_USER}" "${PHP_BIN}"
 printf '    %q \\\n' 'Installationsprøve'
-printf '    --player=%q \\\n' 'Skifter <js@bellcom.dk>'
+printf '    --player=%q \\\n' 'Skifter <skifter@skifter.info>'
 printf '    --player=%q\n' 'Testspiller <test@example.net>'
