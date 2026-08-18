@@ -49,7 +49,7 @@
     <div>
       <p class="eyebrow">Live fleet command</p>
       <h1>Fleets</h1>
-      <p class="intro">Every fleet keeps the ship generations and components it was built with. New research unlocks new models; it does not retrofit fleets already in service.</p>
+      <p class="intro">Every fleet keeps the ship generations and components it was built with. Colony-capable ships show COL capacity; one colony ship is consumed when it founds a colony. New research unlocks new models; it does not retrofit fleets already in service.</p>
     </div>
     <div class="fleet-summary"><span><strong>{ownRows.length}</strong><small>your fleets</small></span><span><strong>{totalShips.toLocaleString('en-US')}</strong><small>ships</small></span><span><strong>{sensorSystemCount}</strong><small>systems scanned</small></span><span><strong>{fuelEfficiencyPercent}%</strong><small>applied fuel saving</small></span></div>
   </header>
@@ -72,7 +72,7 @@
           <span class="order-state">
             {#if order?.action === 'move'}<strong>Waypoint</strong><small>→ {targetName(order)}</small>
             {:else if order?.action === 'colonize'}<strong>Colonize</strong><small>{targetName(order)}</small>
-            {:else}<strong>Idle</strong><small>No draft order</small>{/if}<small class="capability">SPD {row.fleet.movementRange ?? 1} · SEN {row.fleet.sensorRange ?? 0} · ATK {row.fleet.attack ?? 0} · DEF {row.fleet.defense ?? 0}</small>
+            {:else}<strong>Idle</strong><small>No draft order</small>{/if}<small class="capability">SPD {row.fleet.movementRange ?? 1} · SEN {row.fleet.sensorRange ?? 0} · ATK {row.fleet.attack ?? 0} · DEF {row.fleet.defense ?? 0}{#if (row.fleet.colonizationCapacity ?? 0) > 0} · COL {row.fleet.colonizationCapacity}{/if}</small>
           </span>
           <span class="actions"><button onclick={() => onLocate(row.fleet, row.system)}><Icon name="galaxy" size={15}/>Locate</button><button class="route" disabled={!editableTurn} onclick={() => onPlanRoute(row.fleet, row.system)}><Icon name="target" size={15}/>Waypoint</button></span>
         </article>

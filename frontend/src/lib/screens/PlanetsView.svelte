@@ -19,7 +19,7 @@
   const installationFamilies = ['defense_grid', 'orbital_factory', 'deep_space_array'] as const;
   let filter: Filter = 'all';
 
-  $: currentScout = modelCatalog?.designs.find((design) => design.current) ?? modelCatalog?.designs[0] ?? null;
+  $: shipDesigns = [...(modelCatalog?.designs ?? [])].filter((design) => design.unlocked !== false && !design.obsolete).sort((a, b) => Number(b.current) - Number(a.current) || b.generation - a.generation);
   $: buildOptions = createBuildOptions();
   $: productionBySystem = groupProductionBySystem(orders.production ?? []);
   $: colonies = systems
@@ -39,8 +39,19 @@
 
   function createBuildOptions(): BuildOption[] {
     const result: BuildOption[] = [];
-    if (currentScout) {
-      result.push({ item: currentScout.name, modelId: currentScout.id, cost: currentScout.industryCost, icon: 'fleet', detail: `${currentScout.batchSize} ships · ${currentScout.stats.movementRange} hop`, family: null, kind: 'ship' });
+    if (shipDesigns.length > 0) {
+      for (const design of shipDesigns) {
+        const colony = design.stats.colonizationCapacity ?? 0;
+        result.push({
+          item: design.name,
+          modelId: design.id,
+          cost: design.industryCost,
+          icon: colony > 0 ? 'colonize' : 'fleet',
+          detail: `${design.batchSize} ship${design.batchSize === 1 ? '' : 's'} · ${design.stats.movementRange} hop${colony > 0 ? ` · colony ×${colony}` : ''}${design.current ? ' · current' : ` · gen ${design.generation}`}`,
+          family: null,
+          kind: 'ship'
+        });
+      }
     } else {
       result.push({ item: 'Scout Wing', modelId: '', cost: 300, icon: 'fleet', detail: '40 ships · Mk I fallback', family: null, kind: 'ship' });
     }
@@ -197,7 +208,7 @@
     <div>
       <p class="eyebrow">Colony management</p>
       <h1>Planets</h1>
-      <p class="intro">Colonies start collapsed for a compact empire overview. Expand a colony to manage installations, upgrades and production.</p>
+      <p class="intro">Colonies start collapsed for a compact empire overview. Expand a colony to manage installations, upgrades and production. Every saved ship generation can be built explicitly, including colony-ship designs.</p>
     </div>
     <div class="planet-summary">
       <span><strong>{colonies.length}</strong><small>colonies</small></span>
@@ -291,7 +302,7 @@
                 {:else if upgrades.length > 0}
                   <div class="idle-message active-work"><Icon name="build" size={20}/><span><strong>Installation work continues.</strong><small>The current model remains active until the upgrade completes.</small></span></div>
                 {:else}
-                  <div class="idle-message"><Icon name="build" size={20}/><span><strong>This system has no orders this turn.</strong><small>Choose a ship build or an installation action below.</small></span></div>
+                  <div class="idle-message"><Icon name="build" size={20}/><span><strong>This system has no orders this turn.</strong><small>Choose an exact ship design or an installation action below.</small></span></div>
                 {/if}
               </section>
 

@@ -256,11 +256,18 @@ final class DemoTurnEngine implements TurnEngineInterface
                 $systems[$systemIndex]['isCapital'] = false;
                 $systems[$systemIndex]['sensorRange'] = 1;
 
-                $fleets[$fleetIndex]['colonizationCapacity'] = $capacity - 1;
+                $consumed = $this->consumeColonyCapacity($fleet);
+                if ($consumed['fleet'] === null) {
+                    array_splice($fleets, $fleetIndex, 1);
+                } else {
+                    $fleets[$fleetIndex] = $consumed['fleet'];
+                }
                 $colonizations[] = [
                     'fleetId' => $fleetId,
                     'systemId' => $targetSystemId,
                     'population' => $systems[$systemIndex]['population'],
+                    'consumedDesignName' => $consumed['designName'],
+                    'colonyShipConsumed' => $consumed['shipConsumed'],
                 ];
             }
 
@@ -323,17 +330,18 @@ final class DemoTurnEngine implements TurnEngineInterface
                             $warnings[] = sprintf('Skibsdesignet %s kunne ikke indlæses.', $item);
                             break;
                         }
-                        $existingScoutCount = $this->countScoutFleets($fleets, (int) $playerId, $systemId);
-                        $scoutNumber = $existingScoutCount + 1;
+                        $existingFleetCount = $this->countPlayerFleetsAtSystem($fleets, (int) $playerId, $systemId);
+                        $fleetNumber = $existingFleetCount + 1;
                         $batchSize = max(1, (int) ($design['batchSize'] ?? 40));
+                        $designColonyCapacity = max(0, (int) ($design['stats']['colonizationCapacity'] ?? 0));
                         $fleet = [
                             'id' => sprintf('fleet-%s-built-%d-%d', $playerId, $turn->getNumber() + 1, $buildSequence),
                             'ownerPlayerId' => (int) $playerId,
                             'systemId' => $systemId,
-                            'name' => sprintf('%s %s %d', (string) ($systems[$systemIndex]['name'] ?? 'Colony'), (string) ($design['name'] ?? 'Scout'), $scoutNumber),
+                            'name' => sprintf('%s %s %d', (string) ($systems[$systemIndex]['name'] ?? 'Colony'), (string) ($design['name'] ?? 'Scout'), $fleetNumber),
                             'ships' => $batchSize,
-                            'role' => 'Scout fleet',
-                            'colonizationCapacity' => 0,
+                            'role' => $designColonyCapacity > 0 ? 'Colony ship' : 'Scout fleet',
+                            'colonizationCapacity' => $batchSize * $designColonyCapacity,
                             'composition' => [[
                                 'designId' => (string) $design['id'],
                                 'designName' => (string) $design['name'],
@@ -409,6 +417,8 @@ final class DemoTurnEngine implements TurnEngineInterface
                             'modelVersion' => (int) ($definition['version'] ?? 1),
                             'productionKind' => (string) ($definition['kind'] ?? 'legacy'),
                             'industryCost' => $definition['cost'],
+                            'batchSize' => isset($definition['design']) && is_array($definition['design']) ? (int) ($definition['design']['batchSize'] ?? 0) : null,
+                            'colonizationCapacity' => isset($definition['design']) && is_array($definition['design']) ? (int) ($definition['design']['stats']['colonizationCapacity'] ?? 0) : 0,
                         ];
                     }
                 }
@@ -532,14 +542,13 @@ final class DemoTurnEngine implements TurnEngineInterface
     }
 
     /** @param list<mixed> $fleets */
-    private function countScoutFleets(array $fleets, int $playerId, string $systemId): int
+    private function countPlayerFleetsAtSystem(array $fleets, int $playerId, string $systemId): int
     {
         return count(array_filter(
             $fleets,
             static fn (mixed $fleet): bool => is_array($fleet)
                 && (int) ($fleet['ownerPlayerId'] ?? 0) === $playerId
-                && ($fleet['systemId'] ?? null) === $systemId
-                && in_array(($fleet['role'] ?? null), ['Scout fleet', 'Exploration fleet'], true),
+                && ($fleet['systemId'] ?? null) === $systemId,
         ));
     }
 
@@ -623,6 +632,49 @@ final class DemoTurnEngine implements TurnEngineInterface
             'kind' => 'installation', 'modelId' => (string) $model['id'], 'name' => (string) $model['name'],
             'version' => (int) $model['version'], 'cost' => max(1, (int) ($model['stats']['industryCost'] ?? 0)), 'model' => $model,
         ];
+    }
+
+    /**
+     * Consume one component-backed colony ship when possible. Legacy starting
+     * fleets keep the old single-use fleet-level module behavior.
+     *
+     * @param array<string, mixed> $fleet
+     * @return array{fleet:array<string,mixed>|null,designName:string|null,shipConsumed:bool}
+     */
+    private function consumeColonyCapacity(array $fleet): array
+    {
+        $composition = is_array($fleet['composition'] ?? null) ? array_values($fleet['composition']) : [];
+        foreach ($composition as $index => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $stats = is_array($entry['stats'] ?? null) ? $entry['stats'] : [];
+            $perShip = max(0, (int) ($stats['colonizationCapacity'] ?? 0));
+            $quantity = max(0, (int) ($entry['quantity'] ?? 0));
+            if ($perShip < 1 || $quantity < 1) {
+                continue;
+            }
+
+            $designName = is_string($entry['designName'] ?? null) ? $entry['designName'] : null;
+            --$quantity;
+            if ($quantity <= 0) {
+                array_splice($composition, $index, 1);
+            } else {
+                $composition[$index]['quantity'] = $quantity;
+            }
+
+            $fleet['composition'] = array_values($composition);
+            $fleet['ships'] = max(0, (int) ($fleet['ships'] ?? 0) - 1);
+            $fleet['colonizationCapacity'] = max(0, $this->colonyCapacity($fleet) - $perShip);
+            if ((int) $fleet['ships'] <= 0) {
+                return ['fleet' => null, 'designName' => $designName, 'shipConsumed' => true];
+            }
+
+            return ['fleet' => $fleet, 'designName' => $designName, 'shipConsumed' => true];
+        }
+
+        $fleet['colonizationCapacity'] = max(0, $this->colonyCapacity($fleet) - 1);
+        return ['fleet' => $fleet, 'designName' => null, 'shipConsumed' => false];
     }
 
     /** @param array<string, mixed> $fleet */

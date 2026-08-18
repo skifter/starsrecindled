@@ -191,11 +191,10 @@ Do not rush Combat ahead of the equipment/refit/fuel foundation.
 
 ## Immediate next development
 
-After dev5 AI test players are stable on the deployed server:
-1. connect planet ship production to an exact saved ship design/generation;
-2. add fleet refit between compatible explicit generations;
-3. add fuel behavior and global fuel/software/logistics improvements;
-4. move to Combat (`0.8.0`).
+After dev6 repeatable colony ships are stable on the deployed server:
+1. add fleet refit between compatible exact ship generations with explicit cost/time and no automatic hardware upgrades;
+2. add fuel consumption/range behavior and software/logistics/fuel improvements that may affect existing hardware where appropriate;
+3. move to Combat (`0.8.0`) after design, production, refit and fuel behavior are stable.
 
 ## Changelog policy
 
@@ -306,3 +305,14 @@ AI development ZIP/apply packages are for the local Git checkout only and must n
 - Standard AI in dev5 is deliberately test-oriented: when a human submits, still-draft AI seats automatically submit a valid conservative order envelope with no fleet, production, research or design orders.
 - AI test games do not send invitation/turn email batches to synthetic AI addresses.
 - Future AI strategy should consume only information legitimately visible to that player. Do not give AI hidden map/fog information or alternate gameplay rules.
+
+## Repeatable colonization / colony ships
+
+- Ship designs have five required hardware categories (`hull`, `engine`, `scanner`, `weapon`, `armor`) plus an optional `utility` slot.
+- `Colony Module Mk I` is baseline-unlocked in dev6 and provides `colonizationCapacity = 1` at +180 industry.
+- A baseline Scout-derived colony generation therefore costs 480 industry and is produced one ship at a time. Ordinary light ship generations remain 40-ship batches for now.
+- Colony ships are explicit immutable generations. Existing Scout generations remain available, and planet production queues an exact persisted design id.
+- Successful colonization consumes one component-backed colony ship. A one-ship colony fleet therefore disappears after founding its colony.
+- Existing pre-dev6 starting exploration fleets keep their legacy single-use colony module without losing the old fleet, for backwards compatibility.
+- Moving and colonizing remain separate turn actions: the fleet must already be in the target neutral system at turn start to found a colony.
+- Fleet and turn-report data expose colony capacity / consumed colony design for testing and later AI strategy.

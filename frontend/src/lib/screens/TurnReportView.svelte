@@ -145,7 +145,7 @@
           {#each colonizations as colony}
             <article class="event success-event">
               <Icon name="planet" size={18}/>
-              <div><strong>{systemName(colony.systemId)} colonized</strong><p>{colony.population ? `${colony.population.toFixed(2)}B initial population` : 'New colony established'} · {fleetName(colony.fleetId)}</p></div>
+              <div><strong>{systemName(colony.systemId)} colonized</strong><p>{colony.population ? `${colony.population.toFixed(2)}B initial population` : 'New colony established'} · {colony.colonyShipConsumed ? `${colony.consumedDesignName ?? 'Colony ship'} consumed` : fleetName(colony.fleetId)}</p></div>
               <button onclick={() => open(colony.systemId)}>Open colony</button>
             </article>
           {/each}
@@ -213,7 +213,7 @@
           {#each productions as production}
             <article class="event success-event">
               <Icon name={production.productionKind === 'ship' || production.modelId?.startsWith('scout-') ? 'fleet' : production.modelId?.startsWith('defense_grid') ? 'shield' : production.modelId?.startsWith('deep_space_array') ? 'target' : 'industry'} size={18}/>
-              <div><strong>{production.item}</strong><p>{systemName(production.systemId)} · {production.industryCost.toLocaleString('en-US')} industry</p></div>
+              <div><strong>{production.item}</strong><p>{systemName(production.systemId)} · {production.industryCost.toLocaleString('en-US')} industry{production.productionKind === 'ship' && production.batchSize ? ` · ${production.batchSize} ship${production.batchSize === 1 ? '' : 's'}${(production.colonizationCapacity ?? 0) > 0 ? ` · COL ${production.colonizationCapacity}` : ''}` : ''}</p></div>
               <button onclick={() => open(production.systemId)}>Open system</button>
             </article>
           {/each}

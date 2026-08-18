@@ -191,7 +191,7 @@ export interface ResearchTechnology {
   globalEffects?: string[];
 }
 
-export type ModelCategory = 'hull' | 'engine' | 'scanner' | 'weapon' | 'armor' | 'installation';
+export type ModelCategory = 'hull' | 'engine' | 'scanner' | 'weapon' | 'armor' | 'utility' | 'installation';
 export type ShipComponentCategory = Exclude<ModelCategory, 'installation'>;
 
 export interface TechnologyModel {
@@ -229,6 +229,7 @@ export interface ShipDesign {
     defense: number;
     fuelCapacity: number;
     fuelUsePerHop: number;
+    colonizationCapacity?: number;
   };
   industryCost: number;
   batchSize: number;
@@ -387,6 +388,8 @@ export interface AccountTurnStatusPlayer {
   name: string;
   submitted: boolean;
   submitted_at: string | null;
+  controller_type?: 'human' | 'ai';
+  ai_level?: 'standard' | null;
 }
 
 export interface AccountTurnStatusYou extends AccountTurnStatusPlayer {
@@ -417,6 +420,8 @@ export interface TurnReportColonization {
   fleetId: string;
   systemId: string;
   population?: number;
+  consumedDesignName?: string | null;
+  colonyShipConsumed?: boolean;
 }
 
 export interface TurnReportProduction {
@@ -426,6 +431,8 @@ export interface TurnReportProduction {
   modelId?: string;
   modelVersion?: number;
   productionKind?: 'ship' | 'installation' | 'upgrade' | 'legacy';
+  batchSize?: number | null;
+  colonizationCapacity?: number;
 }
 
 

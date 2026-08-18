@@ -21,6 +21,7 @@ final class TechnologyModelCatalog
         'light_armor_mk1' => ['id'=>'light_armor_mk1','category'=>'armor','family'=>'armor','name'=>'Light Armor Mk I','version'=>1,'requires'=>[],'description'=>'Baseline structural protection.','stats'=>['defense'=>2,'industryCost'=>45]],
         'reinforced_armor_mk2' => ['id'=>'reinforced_armor_mk2','category'=>'armor','family'=>'armor','name'=>'Reinforced Armor Mk II','version'=>2,'requires'=>['defenses_1'],'description'=>'Heavier protection for new-build ships.','stats'=>['defense'=>4,'industryCost'=>70]],
         'shielded_armor_mk1' => ['id'=>'shielded_armor_mk1','category'=>'armor','family'=>'armor','name'=>'Shielded Armor Mk III','version'=>3,'requires'=>['defenses_2'],'description'=>'Integrated shielding and armor package.','stats'=>['defense'=>7,'industryCost'=>105]],
+        'colony_module_mk1' => ['id'=>'colony_module_mk1','category'=>'utility','family'=>'colony_module','name'=>'Colony Module Mk I','version'=>1,'requires'=>[],'description'=>'Single-use colonization package. A ship carrying it can establish one colony and is consumed when the colony is founded.','stats'=>['colonizationCapacity'=>1,'industryCost'=>180]],
     ];
 
     /** @var array<string, array<string, mixed>> */
@@ -115,6 +116,10 @@ final class TechnologyModelCatalog
         $scanner = $byCategory['scanner'];
         $weapon = $byCategory['weapon'];
         $armor = $byCategory['armor'];
+        $utility = $byCategory['utility'] ?? null;
+        $colonizationCapacity = is_array($utility)
+            ? max(0, (int) ($utility['stats']['colonizationCapacity'] ?? 0))
+            : 0;
         $signature = implode(':', array_map(static fn (array $component): string => (string) $component['id'], $components));
         $slug = preg_replace('/[^a-z0-9]+/', '-', strtolower($family)) ?: 'ship';
 
@@ -131,9 +136,13 @@ final class TechnologyModelCatalog
                 'defense' => max(0, (int) ($armor['stats']['defense'] ?? 0)),
                 'fuelCapacity' => max(1, (int) ($hull['stats']['fuelCapacity'] ?? 100)),
                 'fuelUsePerHop' => max(1, (int) ($engine['stats']['fuelUsePerHop'] ?? 35)),
+                'colonizationCapacity' => $colonizationCapacity,
             ],
             'industryCost' => max(300, $industryCost),
-            'batchSize' => 40,
+            // Colony ships are individual strategic units. Ordinary light ships are
+            // still produced in the existing 40-ship batch until production is
+            // generalized further.
+            'batchSize' => $colonizationCapacity > 0 ? 1 : 40,
             'unlocked' => true,
             'current' => true,
             'obsolete' => false,
@@ -294,6 +303,20 @@ final class TechnologyModelCatalog
             $components[] = $component;
         }
 
+        // Utility is optional. Dev6 starts with a single Colony Module model;
+        // later utility modules can reuse the same immutable design slot.
+        $utilityModelId = is_string($componentModelIds['utility'] ?? null) ? trim((string) $componentModelIds['utility']) : '';
+        if ($utilityModelId !== '') {
+            $utility = self::COMPONENTS[$utilityModelId] ?? null;
+            if (!is_array($utility) || ($utility['category'] ?? null) !== 'utility') {
+                throw new \InvalidArgumentException('Ship design requires a valid utility component.');
+            }
+            if (!self::unlocked($utility, $completed)) {
+                throw new \InvalidArgumentException(sprintf('%s is not unlocked by completed research.', (string) $utility['name']));
+            }
+            $components[] = $utility;
+        }
+
         $baseHullId = null;
         foreach (is_array($base['components'] ?? null) ? $base['components'] : [] as $component) {
             if (is_array($component) && ($component['category'] ?? null) === 'hull') {
@@ -376,6 +399,8 @@ final class TechnologyModelCatalog
         $defense = 0;
         $fuelCapacity = 0;
         $fuelUse = 0;
+        $compositionColonizationCapacity = 0;
+        $compositionDefinesColonization = false;
         foreach ($composition as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -389,6 +414,10 @@ final class TechnologyModelCatalog
             $defense += $quantity * max(0, (int) ($stats['defense'] ?? 0));
             $fuelCapacity += $quantity * max(0, (int) ($stats['fuelCapacity'] ?? 0));
             $fuelUse += $quantity * max(0, (int) ($stats['fuelUsePerHop'] ?? 0));
+            if (array_key_exists('colonizationCapacity', $stats)) {
+                $compositionDefinesColonization = true;
+                $compositionColonizationCapacity += $quantity * max(0, (int) $stats['colonizationCapacity']);
+            }
         }
         $research = ResearchCatalog::playerState($state, $playerId);
         $fuelEfficiency = max(0, min(80, (int) ($research['modifiers']['fuelEfficiencyPercent'] ?? 0)));
@@ -403,6 +432,12 @@ final class TechnologyModelCatalog
         $fleet['defense'] = $defense;
         $fleet['fuelCapacity'] = $fuelCapacity;
         $fleet['fuelUsePerHop'] = $fuelUse;
+        if ($compositionDefinesColonization) {
+            $fleet['colonizationCapacity'] = $compositionColonizationCapacity;
+        } elseif (isset($fleet['colonizationCapacity']) && is_numeric($fleet['colonizationCapacity'])) {
+            // Preserve the one legacy starting colony module in existing games.
+            $fleet['colonizationCapacity'] = max(0, (int) $fleet['colonizationCapacity']);
+        }
         return $fleet;
     }
 

@@ -16,6 +16,9 @@
 - Added lobby creation of self-contained test games with one logged-in human and one to three Standard AI players.
 - Added automatic AI turn submission so AI test games advance without additional player logins.
 - Added an AI player smoke test and database migration for controller type / AI level.
+- Added Colony Module Mk I as a baseline-unlocked optional ship utility component for repeatable expansion.
+- Added component-backed colony ships that carry explicit COL capacity and are consumed when they successfully found a colony.
+- Added a colony-ship smoke test covering immutable Scout/Colony Ship coexistence, exact cost/batch behavior and legacy colony-module compatibility.
 ### Changed
 
 - Installation upgrades validate exact sequential source/target models and research unlocks.
@@ -29,6 +32,9 @@
 
 - Player/turn status now exposes AI controller information and the Players screen labels computer-controlled seats.
 - AI test games suppress synthetic-player invitation/turn email batches; Standard AI currently submits a conservative valid no-op order envelope for deterministic testing.
+- Ship designs can now contain an optional utility model; colony-capable designs build as one strategic ship per production unit while ordinary light designs retain their existing batch size.
+- Planet production can queue any persisted non-obsolete ship generation by exact design id, allowing Scout and Colony Ship generations to coexist in production.
+- Fleet and Turn Report views expose colony capacity and report when a colony ship was consumed during colonization.
 ### Fixed
 
 - Loaded legacy installation build orders are removed from the local draft when that installation family is already present; the player must use an explicit upgrade order instead.
