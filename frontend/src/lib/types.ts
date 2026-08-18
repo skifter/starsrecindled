@@ -87,6 +87,27 @@ export interface ResourceValue {
   icon: string;
 }
 
+export interface ResourcePotential {
+  industry: number;
+  energy: number;
+  bio: number;
+  science: number;
+}
+
+export interface AsteroidDeposit {
+  present: boolean;
+  richness: number;
+  label: string;
+}
+
+export interface ResourceOutputBreakdown {
+  base: number;
+  planetary: number;
+  asteroid: number;
+  orbital: number;
+  total: number;
+}
+
 export interface ProductionItem {
   id: string;
   label: string;
@@ -138,6 +159,9 @@ export interface StarSystem {
   development: number;
   defenses: number;
   resources: ResourceValue[];
+  resourcePotential?: ResourcePotential;
+  asteroids?: AsteroidDeposit;
+  resourceOutput?: Record<string, ResourceOutputBreakdown>;
   production: ProductionItem[];
   fleets: FleetSummary[];
   description: string;
@@ -382,6 +406,9 @@ export interface ServerSystemState {
   development: number;
   defenses: number;
   resources: ResourceValue[];
+  resourcePotential?: ResourcePotential;
+  asteroids?: AsteroidDeposit;
+  resourceOutput?: Record<string, ResourceOutputBreakdown>;
   production: ProductionItem[];
   description: string;
   isCapital?: boolean;
@@ -444,6 +471,16 @@ export interface AccountVisibility {
   systems?: Record<string, AccountVisibilitySystem>;
   known_system_ids?: string[];
   unknown_system_count?: number;
+}
+
+
+export interface TurnReportResourceIncome {
+  systemId: string;
+  systemName: string;
+  income: Record<string, number>;
+  potential: Partial<ResourcePotential>;
+  output: Record<string, ResourceOutputBreakdown>;
+  asteroids?: AsteroidDeposit | null;
 }
 
 export interface TurnReportMovement {
@@ -576,6 +613,7 @@ export interface TurnReportData {
   refits_started?: TurnReportFleetRefit[];
   refits_completed?: TurnReportFleetRefit[];
   fuel_refills?: TurnReportFuelRefill[];
+  resource_income?: TurnReportResourceIncome[];
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];

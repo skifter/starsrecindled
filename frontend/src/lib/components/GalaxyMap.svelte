@@ -36,10 +36,19 @@
   $: sensorTerritories = buildSensorTerritories();
   $: visibleKnownCount = systems.filter((system) => system.visibilityState !== 'explored').length;
   $: memorySystemCount = systems.filter((system) => system.visibilityState === 'explored').length;
+  const WORLD_WIDTH = 1000;
+  const WORLD_HEIGHT = 620;
+  const MIN_ZOOM = .72;
+  const MAX_ZOOM = 2.2;
+
   let showSensorLayer = false;
   let zoom = 1;
   let panX = 0;
   let panY = 0;
+  $: miniViewportWidth = Math.min(100, 100 / zoom);
+  $: miniViewportHeight = Math.min(62, 62 / zoom);
+  $: miniViewportX = Math.max(0, Math.min(100 - miniViewportWidth, (-panX / zoom) * .1));
+  $: miniViewportY = Math.max(0, Math.min(62 - miniViewportHeight, (-panY / zoom) * .1));
   let dragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
@@ -124,7 +133,7 @@
 
   function sensorRange(system: StarSystem): number {
     if (system.ownerPlayerId !== currentPlayerId || system.visibilityState === 'explored') return 0;
-    return Math.max(0, Math.min(3, Math.round(system.sensorRange ?? 1)));
+    return Math.max(0, Math.min(4, Math.round(system.sensorRange ?? 1)));
   }
 
   function systemStatus(system: StarSystem): string {
@@ -133,10 +142,22 @@
     return (system.ownerLabel ?? 'OTHER PLAYER').toUpperCase();
   }
 
+  function clampPan(value: number, nextZoom: number, worldSize: number): number {
+    const scaledSize = worldSize * nextZoom;
+    if (scaledSize <= worldSize) return (worldSize - scaledSize) / 2;
+    return Math.min(0, Math.max(worldSize - scaledSize, value));
+  }
+
+  function setView(nextZoom: number, nextPanX = panX, nextPanY = panY): void {
+    const clampedZoom = Number(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom)).toFixed(2));
+    zoom = clampedZoom;
+    panX = clampPan(nextPanX, clampedZoom, WORLD_WIDTH);
+    panY = clampPan(nextPanY, clampedZoom, WORLD_HEIGHT);
+  }
+
   function handleWheel(event: WheelEvent): void {
     event.preventDefault();
-    const next = Math.min(2.2, Math.max(.72, zoom + (event.deltaY < 0 ? .12 : -.12)));
-    zoom = Number(next.toFixed(2));
+    setView(zoom + (event.deltaY < 0 ? .12 : -.12));
   }
 
   function pointerDown(event: PointerEvent): void {
@@ -163,8 +184,8 @@
     const dx = event.clientX - dragStartX;
     const dy = event.clientY - dragStartY;
     if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-    panX = startPanX + dx / zoom;
-    panY = startPanY + dy / zoom;
+    panX = clampPan(startPanX + dx / zoom, zoom, WORLD_WIDTH);
+    panY = clampPan(startPanY + dy / zoom, zoom, WORLD_HEIGHT);
   }
 
   function pointerUp(event: PointerEvent): void {
@@ -186,9 +207,7 @@
   }
 
   function resetView(): void {
-    zoom = 1;
-    panX = 0;
-    panY = 0;
+    setView(1, 0, 0);
   }
 </script>
 
@@ -312,6 +331,7 @@
           {/if}
           {#if liveMode}
             {@const scanRange = sensorRange(system)}
+            {#if scanRange >= 4}<ellipse class="sensor-orbit sensor-orbit-4" rx="42" ry="25" transform="rotate(18)" />{/if}
             {#if scanRange >= 3}<ellipse class="sensor-orbit sensor-orbit-3" rx="34" ry="20" transform="rotate(-48)" />{/if}
             {#if scanRange >= 2}<ellipse class="sensor-orbit sensor-orbit-2" rx="27" ry="16" transform="rotate(31)" />{/if}
             {#if scanRange >= 1}<ellipse class="sensor-orbit sensor-orbit-1" rx="21" ry="12" transform="rotate(-17)" />{/if}
@@ -376,8 +396,8 @@
   <div class="map-controls">
     <button aria-label="Center map" onclick={resetView}><Icon name="target" /></button>
     <button class:active={showSensorLayer} aria-label="Toggle sensor coverage" title="Toggle sensor coverage" onclick={() => (showSensorLayer = !showSensorLayer)}><Icon name="layers" /></button>
-    <button aria-label="Zoom in" onclick={() => (zoom = Math.min(2.2, zoom + .15))}><Icon name="plus" /></button>
-    <button aria-label="Zoom out" onclick={() => (zoom = Math.max(.72, zoom - .15))}><Icon name="minus" /></button>
+    <button aria-label="Zoom in" onclick={() => setView(zoom + .15)}><Icon name="plus" /></button>
+    <button aria-label="Zoom out" onclick={() => setView(zoom - .15)}><Icon name="minus" /></button>
   </div>
 
   {#if liveMode && showSensorLayer}
@@ -401,11 +421,9 @@
         </mask>
       </defs>
       {#if liveMode}
-        {#if showSensorLayer}
-          {#each sensorTerritories as territory}
-            <path class="mini-sensor-territory" style={`--mini-color:${OWNER_COLORS[playerOwner(currentPlayerId)]}`} d={territory.path} transform="scale(.1)"/>
-          {/each}
-        {/if}
+        {#each sensorTerritories as territory}
+          <path class:active={showSensorLayer} class="mini-sensor-territory" style={`--mini-color:${OWNER_COLORS[playerOwner(currentPlayerId)]}`} d={territory.path} transform="scale(.1)"/>
+        {/each}
         {#each empireTerritories as territory}
           {#each territory.paths as path}
             <path class="mini-territory-fill" class:memory={territory.memory} style={`--mini-color:${OWNER_COLORS[territory.owner]}`} d={path} transform="scale(.1)"/>
@@ -431,7 +449,7 @@
       {:else}
         <path class="mini player" d="M10 15Q38 3 58 23T48 58Q20 64 7 42Z"/><path class="mini crimson" d="M38 2Q68-2 72 17Q59 25 43 16Z"/><path class="mini violet" d="M62 12Q96 11 99 42Q88 67 61 55Z"/><path class="mini amber" d="M4 45Q26 39 36 67Q11 76 1 58Z"/>
       {/if}
-      <rect class="viewport" x={Math.max(2, 30 - panX / 25)} y={Math.max(2, 20 - panY / 25)} width={45 / zoom} height={32 / zoom}/>
+      <rect class="viewport" x={miniViewportX} y={miniViewportY} width={miniViewportWidth} height={miniViewportHeight}/>
     </svg>
     <span>{Math.round(zoom * 100)}%</span>
   </div>
@@ -476,7 +494,7 @@
   .system:focus-visible .selection-ring,.system:hover .star-glow { opacity:1 }
   .star-glow { fill:url(#starCore);color:var(--system-color);opacity:.72;filter:url(#glow);transition:.15s }
   .star { fill:#fff;stroke:var(--system-color);stroke-width:2;filter:url(#glow) }.star.colonized{stroke-width:3}
-  .sensor-orbit{fill:none;stroke:var(--system-color);stroke-width:1;opacity:.58;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--system-color) 35%,transparent))}.sensor-orbit-2{stroke-dasharray:5 3;opacity:.47}.sensor-orbit-3{stroke-dasharray:2 4;opacity:.38}.ownership-orbit { fill:none;stroke:var(--system-color);stroke-width:2.4;opacity:.9 }.ownership-orbit.unclaimed{stroke:#dcecff;stroke-width:1.5;stroke-dasharray:3 3;opacity:.7}
+  .sensor-orbit{fill:none;stroke:var(--system-color);stroke-width:1;opacity:.58;pointer-events:none;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--system-color) 35%,transparent))}.sensor-orbit-2{stroke-dasharray:5 3;opacity:.47}.sensor-orbit-3{stroke-dasharray:2 4;opacity:.38}.sensor-orbit-4{stroke-dasharray:1 5;opacity:.31}.ownership-orbit { fill:none;stroke:var(--system-color);stroke-width:2.4;opacity:.9 }.ownership-orbit.unclaimed{stroke:#dcecff;stroke-width:1.5;stroke-dasharray:3 3;opacity:.7}
   .system-label { fill:#b9cbd8;font-size:10px;letter-spacing:.9px;paint-order:stroke;stroke:#02070e;stroke-width:3px;stroke-linejoin:round }.system.explored .system-label{fill:#758b99}
   .system-status{fill:var(--system-color);font-size:6.7px;font-weight:700;letter-spacing:.65px;paint-order:stroke;stroke:#02070e;stroke-width:2.5px;stroke-linejoin:round}.last-seen,.selection-intel{fill:#91a5b3;font-size:5.7px;letter-spacing:.45px;paint-order:stroke;stroke:#02070e;stroke-width:2px;stroke-linejoin:round}.selection-intel{fill:#8de2ff;font-weight:700}.selection-intel.stale{fill:#ffd68a}
   .selected .system-label { fill:#edfaff;font-weight:700 }
@@ -491,7 +509,7 @@
   .map-controls button:hover { background:rgba(12,55,83,.95);border-color:#48c8ff }.map-controls button.active{color:#ffd76d;border-color:rgba(255,208,92,.7);background:rgba(52,39,8,.94);box-shadow:0 0 10px rgba(255,208,92,.12)}
   .sensor-layer-status{position:absolute;left:62px;bottom:116px;display:grid;gap:2px;max-width:330px;padding:.48rem .65rem;border:1px solid rgba(255,208,92,.35);background:rgba(4,14,24,.92);pointer-events:none}.sensor-layer-status strong{color:#ffd76d;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em}.sensor-layer-status span{color:#a8c4d5;font-size:.64rem}.sensor-layer-status small{color:#607b8d;font-size:.58rem;line-height:1.35}.minimap { position:absolute;left:14px;bottom:14px;width:180px;height:90px;border:1px solid rgba(69,178,232,.42);background:rgba(1,8,15,.9);padding:5px }
   .minimap svg { display:block;width:100%;height:100%;cursor:default }.minimap .mini { stroke-width:.5;fill-opacity:.12 }.minimap .player { fill:#35c0ff;stroke:#35c0ff }.minimap .crimson { fill:#ff5f58;stroke:#ff5f58 }.minimap .violet { fill:#c864ef;stroke:#c864ef }.minimap .amber { fill:#f0ae39;stroke:#f0ae39 }.minimap .viewport { fill:none;stroke:#fff;stroke-width:1;opacity:.7 }
-  .mini-contested-territory{fill:#dcecf4;fill-opacity:.05;stroke:none}.mini-empire-median{fill:none;stroke:#e5f3fa;stroke-width:1.15;stroke-linecap:round;stroke-opacity:.65}.mini-sensor-territory{fill:var(--mini-color);fill-opacity:.04;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.45}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
+  .mini-contested-territory{fill:#dcecf4;fill-opacity:.05;stroke:none}.mini-empire-median{fill:none;stroke:#e5f3fa;stroke-width:1.15;stroke-linecap:round;stroke-opacity:.65}.mini-sensor-territory{fill:var(--mini-color);fill-opacity:.025;stroke:var(--mini-color);stroke-width:2.3;stroke-dasharray:1.5 1.5;stroke-opacity:.32}.mini-sensor-territory.active{fill-opacity:.055;stroke-opacity:.62}.mini-territory-fill{fill:var(--mini-color);fill-opacity:.11;stroke:none;filter:url(#miniTerritoryBlur)}.mini-territory-fill.memory{fill-opacity:.038}.mini-territory-border{fill:none;stroke:var(--mini-color);stroke-width:4.2;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:.68}.mini-territory-border.memory{stroke-opacity:.3;stroke-dasharray:2 2}.minimap .mini-sensor{fill:color-mix(in srgb,var(--mini-color) 8%,transparent);stroke:var(--mini-color);stroke-width:.35;stroke-dasharray:1.3 1.2;opacity:.65}.minimap .mini-colony{fill:var(--mini-color);stroke:#e7f8ff;stroke-width:.2}.minimap .mini-colony.memory{opacity:.45}.mini-fog{fill:#01050a;fill-opacity:.58}.minimap span { position:absolute;right:7px;bottom:4px;color:#7fb5d1;font-size:9px }
   .map-legend { position:absolute;top:12px;left:14px;max-width:calc(100% - 28px);display:flex;align-items:center;gap:.85rem;padding:.5rem .7rem;background:rgba(2,10,18,.86);border:1px solid rgba(65,159,210,.22);color:#7893a5;font-size:.68rem;overflow-x:auto;white-space:nowrap }
   .map-legend span::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:.35rem }.friendly::before { background:#43c9ff;box-shadow:0 0 8px #43c9ff }.neutral::before { background:#dbefff }.hostile-dot::before { background:#ff645d;box-shadow:0 0 8px #ff645d }
   .legend-entry,.legend-key{display:inline-flex;align-items:center;color:#9cb2c0}.legend-entry::before,.legend-key::before{display:none!important}.legend-entry i{width:8px;height:8px;border-radius:50%;background:var(--legend-color);box-shadow:0 0 8px var(--legend-color);margin-right:.35rem}.unclaimed-entry i{background:#dcecff;box-shadow:none}.legend-key{gap:.35rem;color:#6f899a}.legend-key i{display:inline-block;width:15px;height:8px;margin:0;position:relative}.territory-key i{border-top:2px solid #7fd7ff}.contested-key i{border-top:1px solid #dcecf4;box-shadow:0 0 4px rgba(220,236,244,.22)}.sensor-key i{border-top:1px dashed #7fd7ff;opacity:.7}.memory-key i{border-top:1px dashed #8497a3;opacity:.45}

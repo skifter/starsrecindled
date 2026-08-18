@@ -70,7 +70,7 @@ Known production-style layout:
 
 Frontend lives below `frontend/`.
 
-## Current gameplay state at release 0.7.4
+## Current gameplay state at release 0.7.5
 
 The project has progressed through the following major systems:
 
@@ -207,28 +207,55 @@ Old designs may remain buildable or be marked obsolete according to gameplay/UI 
 - Refit preserves absolute fuel while hardware is unchanged; completion clamps to the new capacity and owned-colony refuelling then fills the fleet normally.
 - Turn Report includes automatic refuelling plus exact hop count, fuel spent and fuel remaining for movement.
 
+## Resource economy and Galaxy polish (0.7.5)
+
+- Public application version is `0.7.5`.
+- Every system has deterministic natural potential for Industry, Energy, Biomass and Science.
+- Recurring resource output requires explicit extraction infrastructure beyond a small colony bootstrap output.
+- Planetary extraction families are Mining Complex, Power Plant, Hydroponics and Research Complex, each versioned Mk I/Mk II/Mk III.
+- Asteroid deposits are deterministic per system. Asteroid Mining Stations can only be built where a deposit exists and add Industry according to asteroid richness.
+- Orbital Factory remains an industrial processing/development installation and contributes a separate Industry processing bonus.
+- New technology never silently upgrades existing installations: Mk II/Mk III models are unlocked and require explicit upgrade orders for existing hardware.
+- PLANETS shows potential, extraction model, current income breakdown and asteroid mining state.
+- Galaxy camera pan/zoom is clamped to the real galaxy world bounds.
+- Mini galaxy uses the same camera bounds and shows the current sensor-coverage footprint, including Deep Space Array Mk III range 4.
+- Turn Report contains per-colony resource extraction output.
+- No DB migration is required; resource potential/deposits and output are normalized into the existing universe/turn state.
+
+## Deployment workflow
+
+- Development ZIP packages are applied only to the local repository `/home/skifter/git/starsrecindled`.
+- Run local PHP smoke tests, `npm --prefix frontend run check`, `npm --prefix frontend run build` and `git diff --check` before committing.
+- Commit and push the tested changes to `origin/main`.
+- Production deployment is always performed on the server with:
+  ```bash
+  bash /root/install-starsrecindled-debian13.sh
+  ```
+- The production installer deploys from Git. AI-generated development ZIP packages are never applied directly on the production server.
+- Actual project changes discussed during development are bundled into the next version package; only diagnostic/read-only commands are performed outside that release bundle.
+
 ## Version roadmap
 
 Current release:
 
-- `0.7.4` – Persistent fuel, refuelling, operational range, fleet management/refit and repeatable colony ships
+- `0.7.5` – Resource extraction, asteroid mining and Galaxy/mini-map polish
 
 Planned sequence:
 
-- `0.8.0` – Combat
+- `0.8.0` – Combat using exact ship generations and persistent fleet state
 - `0.9.0` – Diplomacy
 - `1.0.0` – coherent core gameplay loop
 
-Advanced AI behavior should follow stable combat rules rather than being rewritten around temporary mechanics.
+Advanced AI behavior should follow stable economy and combat rules rather than being rewritten around temporary mechanics.
 
 ## Immediate next development
 
-After the deployed `0.7.4` fuel/operations release is stable:
-1. start Combat (`0.8.0`) using exact fleet composition, installed weapon/armor generations and current fleet state;
-2. keep the first combat model deterministic and reportable before adding tactical complexity;
-3. make combat losses remove exact ship-generation quantities from fleet composition;
-4. keep fog-of-war and sensor visibility authoritative for combat reports;
-5. expand Standard AI once combat gives it stable expansion, production and engagement actions to plan.
+After deployed `0.7.5` resource/galaxy gameplay is stable:
+1. begin Combat (`0.8.0`) with deterministic resolution based on exact fleet composition and installed design generations;
+2. remove losses from exact ship-generation quantities rather than a generic fleet total;
+3. make weapon/armor/defense and sensor state feed combat and player-specific reports;
+4. preserve fuel, refit, colony and resource economics as strategic constraints around combat;
+5. expand Standard AI only after the first combat rules are stable enough to plan production, expansion and engagements.
 
 ## Changelog policy
 

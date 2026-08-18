@@ -9,6 +9,29 @@
 
 ### Fixed
 
+## 0.7.5 - 2026-08-18
+
+### Added
+- Added deterministic natural resource potential for Industry, Energy, Biomass and Science on every star system.
+- Added versioned Mining Complex, Power Plant, Hydroponics, Research Complex and Asteroid Mining Station installations from Mk I through Mk III.
+- Added deterministic asteroid deposits with system richness and asteroid-derived Industry output.
+- Added a PLANETS resource-extraction overview with natural potential, installed extraction model, output breakdown and asteroid status.
+- Added per-colony resource extraction rows to Turn Report.
+- Added resource-economy and Galaxy regression smoke coverage.
+
+### Changed
+- Recurring colony income is now derived from natural potential plus explicitly installed extraction/processing infrastructure instead of legacy fixed income values.
+- Industry research tiers now unlock Mk II/Mk III resource-extraction installations as real hardware versions; existing installations remain unchanged until explicitly upgraded.
+- Newly founded colonies receive a small industrial bootstrap stockpile so the first extraction installation can be established without free long-term resource income.
+- Mini galaxy now keeps the real sensor-coverage footprint visible and supports colony sensor range 4 from Deep Space Array Mk III.
+- Production rejects Asteroid Mining Stations in systems without a significant asteroid deposit.
+- Research no longer restores the old large science fallback when a normalized colony deliberately has zero Science extraction.
+
+### Fixed
+- Galaxy panning and zooming are clamped to the actual 1000×620 galaxy bounds, preventing the main camera from leaving the area represented by the mini galaxy.
+- Mini galaxy viewport now derives from the same clamped camera state as the main Galaxy view.
+- Extended sensor ranges are represented consistently in the main Galaxy and mini galaxy.
+
 ## 0.7.4 - 2026-08-18
 
 ### Added

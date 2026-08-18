@@ -71,14 +71,14 @@ final class ResearchCatalog
         'industry_1' => [
             'id' => 'industry_1', 'field' => 'industry', 'tier' => 1,
             'name' => 'Automated Fabrication', 'cost' => 360, 'prerequisites' => [],
-            'kind' => 'hardware', 'unlocks' => ['orbital_factory_mk2'], 'globalEffects' => [],
-            'effect' => 'Unlocks Orbital Factory Mk II. Existing factories keep their installed model.',
+            'kind' => 'hardware', 'unlocks' => ['orbital_factory_mk2', 'mining_complex_mk2', 'power_plant_mk2', 'hydroponics_mk2', 'research_complex_mk2', 'asteroid_mining_mk2'], 'globalEffects' => [],
+            'effect' => 'Unlocks Mk II industrial and resource-extraction installations. Existing installations keep their installed model until explicitly upgraded.',
         ],
         'industry_2' => [
             'id' => 'industry_2', 'field' => 'industry', 'tier' => 2,
             'name' => 'Autonomous Orbital Industry', 'cost' => 800, 'prerequisites' => ['industry_1'],
-            'kind' => 'hardware', 'unlocks' => ['orbital_factory_mk3'], 'globalEffects' => [],
-            'effect' => 'Unlocks Orbital Factory Mk III for new installations and future upgrades.',
+            'kind' => 'hardware', 'unlocks' => ['orbital_factory_mk3', 'mining_complex_mk3', 'power_plant_mk3', 'hydroponics_mk3', 'research_complex_mk3', 'asteroid_mining_mk3'], 'globalEffects' => [],
+            'effect' => 'Unlocks Mk III industrial and resource-extraction installations for new construction and explicit upgrades.',
         ],
     ];
 
@@ -167,8 +167,10 @@ final class ResearchCatalog
             }
 
             $scienceIncome = 0;
+            $hasScienceResource = false;
             foreach (is_array($system['resources'] ?? null) ? $system['resources'] : [] as $resource) {
                 if (is_array($resource) && ($resource['id'] ?? null) === 'science') {
+                    $hasScienceResource = true;
                     $scienceIncome = max(0, (int) ($resource['income'] ?? 0));
                     break;
                 }
@@ -176,10 +178,10 @@ final class ResearchCatalog
 
             $development = max(0, min(100, (int) ($system['development'] ?? 0)));
             $population = max(0.0, (float) ($system['population'] ?? 0.0));
-            // Older test games may not contain a dedicated science resource yet.
-            // Give those colonies a deterministic development/population fallback
-            // so research is immediately playable after upgrading to 0.7.0.
-            if ($scienceIncome === 0) {
+            // Compatibility fallback only applies to genuinely old states that do
+            // not contain a science resource at all. A normalized 0.7.5 colony with
+            // zero science extraction must not receive free hidden lab output.
+            if (!$hasScienceResource) {
                 $scienceIncome = 20 + intdiv($development, 2) + (int) floor($population * 4);
             }
             $capitalBonus = ($system['isCapital'] ?? false) === true ? 12 : 0;

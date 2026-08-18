@@ -35,6 +35,21 @@ final class TechnologyModelCatalog
         'deep_space_array_mk1' => ['id'=>'deep_space_array_mk1','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk I','version'=>1,'requires'=>[],'description'=>'Extends colony sensor coverage to two hops.','stats'=>['sensorRange'=>2,'industryCost'=>350],'upgradeFrom'=>null,'upgradeCost'=>null],
         'deep_space_array_mk2' => ['id'=>'deep_space_array_mk2','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk II','version'=>2,'requires'=>['sensors_1'],'description'=>'Second-generation colony sensor installation.','stats'=>['sensorRange'=>3,'industryCost'=>470],'upgradeFrom'=>'deep_space_array_mk1','upgradeCost'=>230,'upgradeTurns'=>2],
         'deep_space_array_mk3' => ['id'=>'deep_space_array_mk3','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk III','version'=>3,'requires'=>['sensors_2'],'description'=>'Long-range colony intelligence array.','stats'=>['sensorRange'=>4,'industryCost'=>620],'upgradeFrom'=>'deep_space_array_mk2','upgradeCost'=>300,'upgradeTurns'=>2],
+        'mining_complex_mk1' => ['id'=>'mining_complex_mk1','category'=>'installation','family'=>'mining_complex','name'=>'Mining Complex Mk I','version'=>1,'requires'=>[],'description'=>'Planetary mines that turn local mineral potential into industrial output.','stats'=>['resourceYield'=>24,'industryCost'=>220],'upgradeFrom'=>null,'upgradeCost'=>null],
+        'mining_complex_mk2' => ['id'=>'mining_complex_mk2','category'=>'installation','family'=>'mining_complex','name'=>'Mining Complex Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Automated extraction for mineral-rich colonies.','stats'=>['resourceYield'=>38,'industryCost'=>330],'upgradeFrom'=>'mining_complex_mk1','upgradeCost'=>170,'upgradeTurns'=>2],
+        'mining_complex_mk3' => ['id'=>'mining_complex_mk3','category'=>'installation','family'=>'mining_complex','name'=>'Mining Complex Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Deep-crust extraction and autonomous ore processing.','stats'=>['resourceYield'=>55,'industryCost'=>470],'upgradeFrom'=>'mining_complex_mk2','upgradeCost'=>240,'upgradeTurns'=>2],
+        'power_plant_mk1' => ['id'=>'power_plant_mk1','category'=>'installation','family'=>'power_plant','name'=>'Power Plant Mk I','version'=>1,'requires'=>[],'description'=>'Local generation infrastructure that exploits the colony energy potential.','stats'=>['resourceYield'=>20,'industryCost'=>180],'upgradeFrom'=>null,'upgradeCost'=>null],
+        'power_plant_mk2' => ['id'=>'power_plant_mk2','category'=>'installation','family'=>'power_plant','name'=>'Power Plant Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Higher-efficiency generation and grid storage.','stats'=>['resourceYield'=>32,'industryCost'=>275],'upgradeFrom'=>'power_plant_mk1','upgradeCost'=>145,'upgradeTurns'=>2],
+        'power_plant_mk3' => ['id'=>'power_plant_mk3','category'=>'installation','family'=>'power_plant','name'=>'Power Plant Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Autonomous high-density colony energy infrastructure.','stats'=>['resourceYield'=>46,'industryCost'=>390],'upgradeFrom'=>'power_plant_mk2','upgradeCost'=>205,'upgradeTurns'=>2],
+        'hydroponics_mk1' => ['id'=>'hydroponics_mk1','category'=>'installation','family'=>'hydroponics','name'=>'Hydroponics Mk I','version'=>1,'requires'=>[],'description'=>'Controlled agriculture that converts biosphere potential into biomass.','stats'=>['resourceYield'=>18,'industryCost'=>170],'upgradeFrom'=>null,'upgradeCost'=>null],
+        'hydroponics_mk2' => ['id'=>'hydroponics_mk2','category'=>'installation','family'=>'hydroponics','name'=>'Hydroponics Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Automated agricultural habitats with improved biological yield.','stats'=>['resourceYield'=>30,'industryCost'=>255],'upgradeFrom'=>'hydroponics_mk1','upgradeCost'=>135,'upgradeTurns'=>2],
+        'hydroponics_mk3' => ['id'=>'hydroponics_mk3','category'=>'installation','family'=>'hydroponics','name'=>'Hydroponics Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Closed-loop biosphere production for mature colonies.','stats'=>['resourceYield'=>42,'industryCost'=>355],'upgradeFrom'=>'hydroponics_mk2','upgradeCost'=>185,'upgradeTurns'=>2],
+        'research_complex_mk1' => ['id'=>'research_complex_mk1','category'=>'installation','family'=>'research_complex','name'=>'Research Complex Mk I','version'=>1,'requires'=>[],'description'=>'Laboratories that convert local scientific potential into research output.','stats'=>['resourceYield'=>16,'industryCost'=>230],'upgradeFrom'=>null,'upgradeCost'=>null],
+        'research_complex_mk2' => ['id'=>'research_complex_mk2','category'=>'installation','family'=>'research_complex','name'=>'Research Complex Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Expanded laboratories and automated analysis infrastructure.','stats'=>['resourceYield'=>27,'industryCost'=>345],'upgradeFrom'=>'research_complex_mk1','upgradeCost'=>175,'upgradeTurns'=>2],
+        'research_complex_mk3' => ['id'=>'research_complex_mk3','category'=>'installation','family'=>'research_complex','name'=>'Research Complex Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Advanced research campus with autonomous experimentation systems.','stats'=>['resourceYield'=>40,'industryCost'=>480],'upgradeFrom'=>'research_complex_mk2','upgradeCost'=>245,'upgradeTurns'=>2],
+        'asteroid_mining_mk1' => ['id'=>'asteroid_mining_mk1','category'=>'installation','family'=>'asteroid_mining','name'=>'Asteroid Mining Station Mk I','version'=>1,'requires'=>[],'description'=>'Orbital mining infrastructure for asteroid belts and fields in the colony system.','stats'=>['asteroidYield'=>22,'industryCost'=>260],'upgradeFrom'=>null,'upgradeCost'=>null],
+        'asteroid_mining_mk2' => ['id'=>'asteroid_mining_mk2','category'=>'installation','family'=>'asteroid_mining','name'=>'Asteroid Mining Station Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Automated asteroid prospecting, extraction and ore transport.','stats'=>['asteroidYield'=>35,'industryCost'=>385],'upgradeFrom'=>'asteroid_mining_mk1','upgradeCost'=>195,'upgradeTurns'=>2],
+        'asteroid_mining_mk3' => ['id'=>'asteroid_mining_mk3','category'=>'installation','family'=>'asteroid_mining','name'=>'Asteroid Mining Station Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'High-throughput autonomous belt mining infrastructure.','stats'=>['asteroidYield'=>50,'industryCost'=>525],'upgradeFrom'=>'asteroid_mining_mk2','upgradeCost'=>270,'upgradeTurns'=>2],
     ];
 
     /** @return array<string, mixed>|null */
@@ -451,6 +466,133 @@ final class TechnologyModelCatalog
         return $fleet;
     }
 
+    /** @param array<string, mixed> $system */
+    private static function stablePotential(array $system, string $salt, int $minimum, int $maximum): int
+    {
+        $identity = (string) ($system['id'] ?? $system['name'] ?? 'system');
+        $raw = hexdec(substr(hash('sha256', $identity.'|'.$salt), 0, 8));
+        return $minimum + ($raw % max(1, $maximum - $minimum + 1));
+    }
+
+    /** @param array<string, mixed> $system @return array<string, int> */
+    private static function resourcePotential(array $system): array
+    {
+        $existing = is_array($system['resourcePotential'] ?? null) ? $system['resourcePotential'] : [];
+        return [
+            'industry' => max(1, min(100, (int) ($existing['industry'] ?? self::stablePotential($system, 'minerals', 25, 95)))),
+            'energy' => max(1, min(100, (int) ($existing['energy'] ?? self::stablePotential($system, 'energy', 20, 95)))),
+            'bio' => max(1, min(100, (int) ($existing['bio'] ?? self::stablePotential($system, 'biosphere', 15, 95)))),
+            'science' => max(1, min(100, (int) ($existing['science'] ?? self::stablePotential($system, 'science', 20, 90)))),
+        ];
+    }
+
+    /** @param array<string, mixed> $system @return array<string, mixed> */
+    private static function asteroidDeposit(array $system): array
+    {
+        $existing = is_array($system['asteroids'] ?? null) ? $system['asteroids'] : [];
+        if (array_key_exists('present', $existing)) {
+            $present = (bool) $existing['present'];
+            $richness = $present ? max(1, min(100, (int) ($existing['richness'] ?? 50))) : 0;
+        } else {
+            $roll = self::stablePotential($system, 'asteroid-presence', 0, 99);
+            $present = $roll < 60;
+            $richness = $present ? self::stablePotential($system, 'asteroid-richness', 25, 95) : 0;
+        }
+        $label = !$present
+            ? 'No significant asteroid deposit'
+            : ($richness >= 75 ? 'Metal-rich asteroid belt' : ($richness >= 50 ? 'Asteroid belt' : 'Sparse asteroid field'));
+        return ['present' => $present, 'richness' => $richness, 'label' => (string) ($existing['label'] ?? $label)];
+    }
+
+    /** @param array<string, mixed> $system @return array<string, mixed> */
+    public static function normalizeSystemEconomy(array $system): array
+    {
+        $potential = self::resourcePotential($system);
+        $asteroids = self::asteroidDeposit($system);
+        $system['resourcePotential'] = $potential;
+        $system['asteroids'] = $asteroids;
+
+        $resourceDefinitions = [
+            'industry' => ['label' => 'Industry', 'icon' => 'industry'],
+            'science' => ['label' => 'Science', 'icon' => 'research'],
+            'bio' => ['label' => 'Biomass', 'icon' => 'planet'],
+            'energy' => ['label' => 'Energy', 'icon' => 'energy'],
+        ];
+        $resourcesById = [];
+        foreach (is_array($system['resources'] ?? null) ? $system['resources'] : [] as $resource) {
+            if (is_array($resource) && is_string($resource['id'] ?? null)) {
+                $resourcesById[(string) $resource['id']] = $resource;
+            }
+        }
+
+        $owned = isset($system['ownerPlayerId']) && is_numeric($system['ownerPlayerId']);
+        $developmentFactor = 0.60 + (max(0, min(100, (int) ($system['development'] ?? 0))) / 250.0);
+        $base = ['industry' => 0, 'science' => 0, 'bio' => 0, 'energy' => 0];
+        if ($owned) {
+            // A newly founded colony must be able to bootstrap its first extraction
+            // installation, but meaningful income comes from built infrastructure.
+            $base['industry'] = (bool) ($system['isCapital'] ?? false) ? 6 : 2;
+            $base['energy'] = 1;
+            $base['bio'] = 1;
+            $base['science'] = (bool) ($system['isCapital'] ?? false) ? 2 : 0;
+        }
+
+        $planetary = ['industry' => 0, 'science' => 0, 'bio' => 0, 'energy' => 0];
+        $asteroid = ['industry' => 0, 'science' => 0, 'bio' => 0, 'energy' => 0];
+        $orbital = ['industry' => 0, 'science' => 0, 'bio' => 0, 'energy' => 0];
+        $familyResources = [
+            'mining_complex' => 'industry',
+            'power_plant' => 'energy',
+            'hydroponics' => 'bio',
+            'research_complex' => 'science',
+        ];
+        foreach (is_array($system['installations'] ?? null) ? $system['installations'] : [] as $installation) {
+            if (!is_array($installation)) {
+                continue;
+            }
+            $family = (string) ($installation['family'] ?? '');
+            $model = self::model((string) ($installation['modelId'] ?? ''));
+            if ($model === null) {
+                continue;
+            }
+            $stats = is_array($model['stats'] ?? null) ? $model['stats'] : [];
+            if (isset($familyResources[$family])) {
+                $resourceId = $familyResources[$family];
+                $yield = max(0, (int) ($stats['resourceYield'] ?? 0));
+                $planetary[$resourceId] += (int) round($yield * ($potential[$resourceId] / 100) * $developmentFactor);
+            } elseif ($family === 'asteroid_mining' && $asteroids['present']) {
+                $yield = max(0, (int) ($stats['asteroidYield'] ?? 0));
+                $asteroid['industry'] += (int) round($yield * (((int) $asteroids['richness']) / 100));
+            } elseif ($family === 'orbital_factory') {
+                $orbital['industry'] += max(0, (int) ($stats['industryIncome'] ?? 0));
+            }
+        }
+
+        $output = [];
+        $resources = [];
+        foreach ($resourceDefinitions as $id => $definition) {
+            $total = $owned ? max(0, $base[$id] + $planetary[$id] + $asteroid[$id] + $orbital[$id]) : 0;
+            $existing = $resourcesById[$id] ?? [];
+            $resources[] = [
+                'id' => $id,
+                'label' => (string) ($existing['label'] ?? $definition['label']),
+                'value' => max(0, (int) ($existing['value'] ?? 0)),
+                'income' => $total,
+                'icon' => (string) ($existing['icon'] ?? $definition['icon']),
+            ];
+            $output[$id] = [
+                'base' => $owned ? $base[$id] : 0,
+                'planetary' => $owned ? $planetary[$id] : 0,
+                'asteroid' => $owned ? $asteroid[$id] : 0,
+                'orbital' => $owned ? $orbital[$id] : 0,
+                'total' => $total,
+            ];
+        }
+        $system['resources'] = $resources;
+        $system['resourceOutput'] = $output;
+        return $system;
+    }
+
     /** @param array<string, mixed> $state @return array<string, mixed> */
     public static function normalizeState(array $state): array
     {
@@ -491,6 +633,7 @@ final class TechnologyModelCatalog
                 $installations[] = ['family'=>'orbital_factory','modelId'=>'orbital_factory_mk1','name'=>$model['name'],'version'=>1];
             }
             $systems[$index]['installations'] = $installations;
+            $systems[$index] = self::normalizeSystemEconomy($systems[$index]);
         }
         $state['universe']['systems'] = $systems;
 
@@ -549,7 +692,7 @@ final class TechnologyModelCatalog
         } elseif ($family === 'deep_space_array') {
             $system['sensorRange'] = max((int) ($system['sensorRange'] ?? 1), max(1, (int) ($stats['sensorRange'] ?? 1)));
         }
-        return $system;
+        return self::normalizeSystemEconomy($system);
     }
 
     /** @param array<string, mixed> $state @return array<string, mixed>|null */
@@ -715,20 +858,11 @@ final class TechnologyModelCatalog
         } elseif ($family === 'orbital_factory') {
             $developmentDelta = (int) ($toStats['developmentAdd'] ?? 0) - (int) ($fromStats['developmentAdd'] ?? 0);
             $system['development'] = min(100, max(0, (int) ($system['development'] ?? 0) + $developmentDelta));
-            $incomeDelta = (int) ($toStats['industryIncome'] ?? 0) - (int) ($fromStats['industryIncome'] ?? 0);
-            $resources = is_array($system['resources'] ?? null) ? array_values($system['resources']) : [];
-            foreach ($resources as $resourceIndex => $resource) {
-                if (is_array($resource) && ($resource['id'] ?? null) === 'industry') {
-                    $resources[$resourceIndex]['income'] = max(0, (int) ($resource['income'] ?? 0) + $incomeDelta);
-                    break;
-                }
-            }
-            $system['resources'] = $resources;
         } elseif ($family === 'deep_space_array') {
             $system['sensorRange'] = max((int) ($system['sensorRange'] ?? 1), max(1, (int) ($toStats['sensorRange'] ?? 1)));
         }
 
-        return $system;
+        return self::normalizeSystemEconomy($system);
     }
 
     /** @param array<string, mixed> $design */
