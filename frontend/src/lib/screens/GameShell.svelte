@@ -118,6 +118,9 @@
 
     if (replacement !== selectedSystem) selectedSystem = replacement;
   }
+  $: if (!demoMode && status?.model_catalog && gameSystems.length > 0 && (orders.production?.length ?? 0) > 0) {
+    pruneStaleInstallationBuildOrders();
+  }
   $: turnStateLabel = busy
     ? 'SYNCING'
     : demoMode
@@ -239,6 +242,37 @@
       .sort((a, b) => b.version - a.version)[0] ?? null;
   }
 
+  function installationFamilyForOrder(order: ProductionOrder): string | null {
+    if (order.productionKind === 'upgrade') return null;
+    if (order.modelId) {
+      const model = status?.model_catalog?.installations.find((entry) => entry.id === order.modelId);
+      if (model) return model.family;
+    }
+
+    const item = order.item.toLowerCase();
+    if (item.includes('deep space array')) return 'deep_space_array';
+    if (item.includes('defense grid')) return 'defense_grid';
+    if (item.includes('orbital factory')) return 'orbital_factory';
+    return null;
+  }
+
+  function pruneStaleInstallationBuildOrders(): void {
+    const production = orders.production ?? [];
+    const nextProduction = production.filter((order) => {
+      const family = installationFamilyForOrder(order);
+      if (!family) return true;
+      const system = gameSystems.find((entry) => entry.id === order.systemId);
+      if (!system || system.ownerPlayerId !== connection.playerId) return true;
+      return !(system.installations ?? []).some((installation) => installation.family === family);
+    });
+
+    const removed = production.length - nextProduction.length;
+    if (removed <= 0) return;
+
+    onOrdersChange({ ...orders, production: nextProduction });
+    localNotice = `${removed} obsolete installation build order${removed === 1 ? '' : 's'} removed from the draft. Use Upgrade for installed hardware.`;
+  }
+
   function currentScoutDesign() {
     return status?.model_catalog?.designs.find((design) => design.current)
       ?? status?.model_catalog?.designs[0]
@@ -330,6 +364,11 @@
       modelVersion: target.version,
       upgradeTurns: target.upgradeTurns ?? 2
     });
+  }
+
+  function addSelectedInstallationUpgrade(targetModelId: string, sourceModelId: string): void {
+    if (!selectedSystem) return;
+    addInstallationUpgrade(selectedSystem, targetModelId, sourceModelId);
   }
 
   function addProduction(item: string, modelId = ''): void {
@@ -634,6 +673,7 @@
           productionOrders={(orders.production ?? []).filter((order) => order.systemId === selectedSystem?.id)}
           onRemoveBuild={removeProductionFromSelected}
           onBuild={addProduction}
+          onUpgrade={addSelectedInstallationUpgrade}
           onSelectFleet={selectFleetFromDetail}
           onWaypointFleet={beginWaypointFromDetail}
         />

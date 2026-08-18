@@ -1,6 +1,6 @@
 # StarsRecindled – AI startup context
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 This file is the persistent bootstrap context for AI-assisted development of StarsRecindled.
 Read this file before proposing or applying changes.
@@ -208,6 +208,11 @@ The first 0.7.2 slice — explicit planetary installation upgrades — is now im
 - Turn Report records completed installation upgrades
 - `tests/installation-upgrade-smoke.php` verifies sequencing and defense/factory/sensor stat deltas
 
+- Planets overview is collapsible and starts with every colony collapsed; population, happiness, development, defenses and activity remain visible in the compact row.
+- Planet and galaxy detail panels expose sequential installation upgrades directly instead of presenting installed older models as disabled build choices.
+- Legacy normal-build orders for already-installed families are cleaned from loaded local drafts; backend validation still rejects invalid direct/API orders.
+- Production validation messages prefer human-readable colony/model names over internal ids.
+
 ### Next 0.7.2 slices
 
 - design cloning/editing so researched components can be assembled into intentional new ship generations
@@ -243,17 +248,26 @@ Rules:
 - when a release is considered complete, move the relevant `Unreleased` items under the released version and add the release date
 - update frontend/application version metadata as part of the release step
 
-## Preferred development / delivery workflow
+## Development and deployment workflow
 
-The established workflow is to deliver AI changes as a versioned ZIP package containing an apply script.
+Development is performed on the developer's local workstation.
 
-Typical package naming:
+- Local repository: `/home/skifter/git/starsrecindled`
+- Remote repository: `git@github.com:skifter/starsrecindled.git`
+- Branch: `main`
 
-```text
-stars-<feature>-<version>.zip
-```
+### Local development
 
-Typical apply flow:
+1. AI-generated ZIP/apply packages are applied **only to the local Git checkout**.
+2. Changes are reviewed and tested locally.
+3. `git diff --check`, relevant PHP checks/tests, and frontend `check`/`build` must pass.
+4. Changes are committed on the local workstation.
+5. The commit is pushed to `origin/main`.
+6. The Git repository is the authoritative deployment source.
+
+AI development ZIP/apply packages must not be applied directly to the server.
+
+Typical local apply flow:
 
 ```bash
 rm -rf /tmp/stars-<feature>-<version>
@@ -262,54 +276,34 @@ unzip /home/skifter/tmp/stars-<feature>-<version>.zip
 /tmp/stars-<feature>-<version>/install/apply-<version>.sh /home/skifter/git/starsrecindled
 ```
 
-The apply script should:
-
-- validate the target is the expected repository
-- validate important baseline assumptions before editing
-- fail with a clear error if expected source text/files are not present
-- avoid partially applying dependent changes when validation fails
-- be safe to run as a separate script
-- use backups or atomic writes where appropriate
-- not commit or push automatically unless explicitly requested
-
-After applying, provide concrete test commands.
-
-Common verification:
+Typical local verification:
 
 ```bash
 cd /home/skifter/git/starsrecindled
-npm --prefix frontend install --no-audit --no-fund
 npm --prefix frontend run check
 npm --prefix frontend run build
 git diff --check
-git status --short
-```
-
-For modified PHP files, also run `php -l` on each relevant file.
-
-For modified shell scripts, run `bash -n`.
-
-Then inspect the diff before commit:
-
-```bash
-git diff --check
-git diff
 git status -sb
 ```
 
-Commits are normally short English imperative/feature descriptions, for example:
+Also run `php -l` on modified PHP files and any feature-specific tests supplied with the change.
+
+### Server deployment
+
+After the tested change is committed and pushed to `main`, update the server using the StarsRecindled installer/update script contained in the Git repository.
+
+The canonical flow is:
 
 ```text
-Add versioned technology models and ship generations
-Add persistent research and technology progression
-Polish empire influence borders and contested zones
+local apply/development
+-> local tests
+-> local commit
+-> push origin/main
+-> server installer/update script from the repository
+-> deployment verification in the running application
 ```
 
-Push target:
-
-```bash
-git push origin main
-```
+Do not bypass Git by copying AI payload files directly to the server. This separation is intentional and must be preserved for future releases.
 
 ## Shell-command safety
 
@@ -352,7 +346,7 @@ Preserve these established concepts unless a deliberate redesign is agreed:
 
 The preferred startup instruction is:
 
-> Read `AI_startup.md` first. Treat the current `main` branch of `git@github.com:skifter/starsrecindled.git` as the source of truth. Inspect `git status`, recent commits and the files relevant to the next task before proposing changes. Continue from the "Immediate next development" section unless newer code/changelog state shows that work has already moved on. Deliver code changes using the project's versioned ZIP + `install/apply-*.sh` workflow and include verification commands.
+> Read `AI_startup.md` first. Treat the current `main` branch of `git@github.com:skifter/starsrecindled.git` as the source of truth. Inspect `git status`, recent commits and the files relevant to the next task before proposing changes. Continue from the "Immediate next development" section unless newer code/changelog state shows that work has already moved on. Deliver development changes as a versioned ZIP + local `install/apply-*.sh` package, verify them in `/home/skifter/git/starsrecindled`, then commit/push locally. Server deployment must happen only through the repository installer/update script.
 
 If the repository has advanced beyond the commit recorded in this file, update this file as part of the next meaningful change.
 

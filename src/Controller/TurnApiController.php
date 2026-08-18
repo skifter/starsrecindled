@@ -260,6 +260,9 @@ final class TurnApiController extends AbstractController
             if (!is_array($system) || (int) ($system['ownerPlayerId'] ?? 0) !== $playerId) {
                 throw new \InvalidArgumentException(sprintf('Production system %s is not one of your colonies.', $systemId));
             }
+            $systemName = is_string($system['name'] ?? null) && trim((string) $system['name']) !== ''
+                ? trim((string) $system['name'])
+                : $systemId;
 
             if ($productionKind === 'upgrade') {
                 if ($modelId === '' || $sourceModelId === '') {
@@ -272,14 +275,14 @@ final class TurnApiController extends AbstractController
                 $family = (string) ($target['family'] ?? '');
                 $installed = TechnologyModelCatalog::installationForFamily($system, $family);
                 if ($installed === null || ($installed['modelId'] ?? null) !== $sourceModelId) {
-                    throw new \InvalidArgumentException(sprintf('Upgrade source %s is not installed in %s.', $sourceModelId, $systemId));
+                    throw new \InvalidArgumentException(sprintf('Upgrade source %s is not installed on %s.', $sourceModelId, $systemName));
                 }
                 if (TechnologyModelCatalog::pendingUpgradeForFamily($system, $family) !== null) {
-                    throw new \InvalidArgumentException(sprintf('%s already has an active %s upgrade.', $systemId, $family));
+                    throw new \InvalidArgumentException(sprintf('%s already has an active %s upgrade.', $systemName, (string) ($target['name'] ?? $family)));
                 }
                 $upgradeKey = $systemId.'|'.$family;
                 if (isset($upgradeFamilies[$upgradeKey])) {
-                    throw new \InvalidArgumentException(sprintf('%s already has a queued %s upgrade in this turn.', $systemId, $family));
+                    throw new \InvalidArgumentException(sprintf('%s already has a queued %s upgrade in this turn.', $systemName, (string) ($target['name'] ?? $family)));
                 }
                 $upgradeFamilies[$upgradeKey] = true;
                 $source = TechnologyModelCatalog::model($sourceModelId);
@@ -303,8 +306,12 @@ final class TurnApiController extends AbstractController
                 $model = TechnologyModelCatalog::model($modelId);
                 if (is_array($model) && ($model['category'] ?? null) === 'installation') {
                     $family = (string) ($model['family'] ?? '');
-                    if (TechnologyModelCatalog::installationForFamily($system, $family) !== null) {
-                        throw new \InvalidArgumentException(sprintf('%s already has a %s installation; use an upgrade order.', $systemId, $family));
+                    $installed = TechnologyModelCatalog::installationForFamily($system, $family);
+                    if ($installed !== null) {
+                        $installedName = is_string($installed['name'] ?? null) && trim((string) $installed['name']) !== ''
+                            ? trim((string) $installed['name'])
+                            : $family;
+                        throw new \InvalidArgumentException(sprintf('%s already has %s installed; use Upgrade instead.', $systemName, $installedName));
                     }
                 }
             }
