@@ -13,7 +13,7 @@
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountGameAccess, AccountTurnStatus, ConnectionSettings, FleetSummary, GameSection, PlayerOrders, ProductionOrder, RouteLink, StarSystem } from '../types';
+  import type { AccountGameAccess, AccountTurnStatus, ConnectionSettings, FleetSummary, GameSection, PlayerOrders, ProductionOrder, RouteLink, ShipDesignOrder, StarSystem } from '../types';
 
   export let connection: ConnectionSettings;
   export let game: AccountGameAccess | null = null;
@@ -293,6 +293,40 @@
     return (orders.production ?? [])
       .filter((order) => order.systemId === systemId)
       .reduce((sum, order) => sum + productionCost(order.item, order.modelId ?? '', order.productionKind ?? '', order.sourceModelId ?? '') * Math.max(1, order.quantity), 0);
+  }
+
+  function queueShipDesign(order: ShipDesignOrder): void {
+    if (!editableTurn || demoMode) {
+      localNotice = 'Reopen the turn before changing ship design orders.';
+      return;
+    }
+
+    const duplicate = (orders.designs ?? []).some((candidate) =>
+      candidate.name.trim().toLocaleLowerCase('en-US') === order.name.trim().toLocaleLowerCase('en-US')
+    );
+    if (duplicate) {
+      localNotice = `${order.name} is already queued.`;
+      return;
+    }
+
+    updateOrders(
+      { ...orders, designs: [...(orders.designs ?? []), order] },
+      `${order.name} queued as a new ship generation. It becomes available after this turn is processed.`
+    );
+  }
+
+  function removeShipDesign(index: number): void {
+    if (!editableTurn || demoMode) {
+      localNotice = 'Reopen the turn before changing ship design orders.';
+      return;
+    }
+    const designOrders = orders.designs ?? [];
+    const removed = designOrders[index];
+    if (!removed) return;
+    updateOrders(
+      { ...orders, designs: designOrders.filter((_, candidateIndex) => candidateIndex !== index) },
+      `${removed.name} removed from the design queue.`
+    );
   }
 
   function addProductionForSystem(system: StarSystem, item: string, modelId = '', metadata: Partial<ProductionOrder> = {}): void {
@@ -637,7 +671,13 @@
           onPlanRoute={beginWaypointForFleet}
         />
       {:else if activeSection === 'designs' && !demoMode}
-        <DesignsView catalog={status?.model_catalog ?? null}/>
+        <DesignsView
+          catalog={status?.model_catalog ?? null}
+          orders={orders.designs ?? []}
+          {editableTurn}
+          onQueueDesign={queueShipDesign}
+          onRemoveDesign={removeShipDesign}
+        />
       {:else if activeSection === 'research' && !demoMode}
         <ResearchView
           research={status?.research ?? null}

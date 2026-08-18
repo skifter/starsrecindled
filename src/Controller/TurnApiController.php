@@ -192,6 +192,7 @@ final class TurnApiController extends AbstractController
         $orders['fleets'] = is_array($orders['fleets'] ?? null) ? array_values($orders['fleets']) : [];
         $orders['production'] = is_array($orders['production'] ?? null) ? array_values($orders['production']) : [];
         $orders['research'] = is_array($orders['research'] ?? null) ? array_values($orders['research']) : [];
+        $orders['designs'] = is_array($orders['designs'] ?? null) ? array_values($orders['designs']) : [];
 
         return $orders;
     }
@@ -200,8 +201,56 @@ final class TurnApiController extends AbstractController
     private function validateOrders(array $orders, array $state, int $playerId): array
     {
         $state = TechnologyModelCatalog::normalizeState($state);
+        $orders = $this->validateDesignOrders($orders, $state, $playerId);
         $orders = $this->validateResearchOrders($orders, $state, $playerId);
         return $this->validateProductionOrders($orders, $state, $playerId);
+    }
+
+    /** @param array<string,mixed> $orders @param array<string,mixed> $state @return array<string,mixed> */
+    private function validateDesignOrders(array $orders, array $state, int $playerId): array
+    {
+        if (!array_key_exists('designs', $orders) || $orders['designs'] === null) {
+            $orders['designs'] = [];
+            return $orders;
+        }
+        if (!is_array($orders['designs'])) {
+            throw new \InvalidArgumentException('Design orders must be an array.');
+        }
+
+        $normalized = [];
+        $workingState = $state;
+        foreach (array_values($orders['designs']) as $entry) {
+            if (!is_array($entry)) {
+                throw new \InvalidArgumentException('Each design order must be a JSON object.');
+            }
+            $action = is_string($entry['action'] ?? null) ? trim($entry['action']) : 'create';
+            $baseDesignId = is_string($entry['baseDesignId'] ?? null) ? trim($entry['baseDesignId']) : '';
+            $name = is_string($entry['name'] ?? null) ? trim($entry['name']) : '';
+            $componentModelIds = is_array($entry['componentModelIds'] ?? null) ? $entry['componentModelIds'] : [];
+            if ($action !== 'create') {
+                throw new \InvalidArgumentException(sprintf('Unknown design action %s.', $action));
+            }
+            if ($baseDesignId === '' || $name === '') {
+                throw new \InvalidArgumentException('New ship generations require baseDesignId and name.');
+            }
+
+            $design = TechnologyModelCatalog::createDesign($workingState, $playerId, $baseDesignId, $name, $componentModelIds);
+            $normalized[] = [
+                'action' => 'create',
+                'baseDesignId' => $baseDesignId,
+                'name' => (string) $design['name'],
+                'componentModelIds' => array_combine(
+                    array_map(static fn (array $component): string => (string) $component['category'], $design['components']),
+                    array_map(static fn (array $component): string => (string) $component['modelId'], $design['components']),
+                ),
+                'designId' => (string) $design['id'],
+                'generation' => (int) $design['generation'],
+            ];
+            $workingState = TechnologyModelCatalog::appendDesign($workingState, $playerId, $design, 0);
+        }
+
+        $orders['designs'] = $normalized;
+        return $orders;
     }
 
     /** @param array<string,mixed> $orders @param array<string,mixed> $state @return array<string,mixed> */

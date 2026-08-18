@@ -218,6 +218,11 @@ The first 0.7.2 slice — explicit planetary installation upgrades — is now im
 - Galaxy planet details include Development percentage in the top overview metrics.
 - Draft installation upgrades are disabled/greyed and labelled `IN QUEUE`; the collapsed colony status shows `UPGRADE QUEUED` until turn processing starts.
 
+- Ship designs are now explicit player-created immutable generations. Hardware research unlocks components but does not auto-generate a new design.
+- DESIGNS can clone an existing generation, select unlocked hull/engine/scanner/weapon/armor models, preview derived stats/cost, and queue the new generation in the current turn draft.
+- New design orders are validated server-side and persisted when the turn is processed; the newest processed generation becomes the current new-build design while older fleets/design snapshots stay unchanged.
+- Turn Report records completed ship-design generation events.
+
 ### Next 0.7.2 slices
 
 - design cloning/editing so researched components can be assembled into intentional new ship generations
@@ -238,6 +243,7 @@ Use:
 ```text
 ## Unreleased
 - next recommended implementation order: design cloning/editing -> ship refit -> fuel; do not start Combat before these are stable
+- next recommended implementation: production design selection and fleet refit, then fuel; Combat remains after 0.7.2 is stable
 
 ### Added
 ### Changed
@@ -370,3 +376,8 @@ Update `AI_startup.md` whenever any of these change materially:
 - established apply/test/release workflow
 
 The purpose is that a new conversation should need the repository plus this file, not a full historical chat export.
+
+## Development and deployment workflow
+
+Local development → local tests → commit → push main → server installer/update script → deployment verification.
+AI development ZIP/apply packages are for the local Git checkout only and must not be applied directly to the server.

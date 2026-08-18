@@ -93,6 +93,7 @@ final class DemoTurnEngine implements TurnEngineInterface
             $colonizations = [];
             $productions = [];
             $installationUpgradesCompleted = $upgradeCompletionsByPlayer[$playerIdInt] ?? [];
+            $designsCreated = [];
             $researchCompleted = [];
             $researchProgress = null;
             $warnings = $upgradeWarningsByPlayer[$playerIdInt] ?? [];
@@ -100,6 +101,40 @@ final class DemoTurnEngine implements TurnEngineInterface
             $playerResearch = ResearchCatalog::playerState(['research' => $researchByPlayer], $playerIdInt);
             $researchIncome = ResearchCatalog::estimateIncome($state, $playerIdInt);
             $fleetOrders = is_array($orders['fleets'] ?? null) ? $orders['fleets'] : [];
+
+            // Ship generations are explicit design orders. Research only unlocks
+            // component models; a completed technology never mutates or silently
+            // replaces an existing design. New designs become available next turn.
+            $designOrders = is_array($orders['designs'] ?? null) ? array_values($orders['designs']) : [];
+            foreach ($designOrders as $designOrder) {
+                if (!is_array($designOrder)) {
+                    continue;
+                }
+                $baseDesignId = is_string($designOrder['baseDesignId'] ?? null) ? trim($designOrder['baseDesignId']) : '';
+                $name = is_string($designOrder['name'] ?? null) ? trim($designOrder['name']) : '';
+                $componentModelIds = is_array($designOrder['componentModelIds'] ?? null) ? $designOrder['componentModelIds'] : [];
+                try {
+                    $design = TechnologyModelCatalog::createDesign($nextState, $playerIdInt, $baseDesignId, $name, $componentModelIds);
+                    $expectedId = is_string($designOrder['designId'] ?? null) ? $designOrder['designId'] : '';
+                    if ($expectedId !== '' && $expectedId !== (string) $design['id']) {
+                        $warnings[] = sprintf('Design order %s changed while the turn was waiting and was not created.', $name !== '' ? $name : $expectedId);
+                        continue;
+                    }
+                    $nextState = TechnologyModelCatalog::appendDesign($nextState, $playerIdInt, $design, $turn->getNumber() + 1);
+                    $designsCreated[] = [
+                        'designId' => (string) $design['id'],
+                        'name' => (string) $design['name'],
+                        'family' => (string) $design['family'],
+                        'generation' => (int) $design['generation'],
+                        'basedOnDesignId' => $design['basedOnDesignId'] ?? null,
+                        'components' => $design['components'] ?? [],
+                        'stats' => $design['stats'] ?? [],
+                        'industryCost' => (int) ($design['industryCost'] ?? 0),
+                    ];
+                } catch (\InvalidArgumentException $exception) {
+                    $warnings[] = sprintf('Ship design %s could not be created: %s', $name !== '' ? $name : 'unnamed', $exception->getMessage());
+                }
+            }
 
             // Movement is resolved before colonization. A fleet that moved this turn
             // cannot colonize until the following turn.
@@ -463,18 +498,22 @@ final class DemoTurnEngine implements TurnEngineInterface
             if (count($installationUpgradesCompleted) > 0) {
                 $parts[] = sprintf('%d installationsopgradering(er)', count($installationUpgradesCompleted));
             }
+            if (count($designsCreated) > 0) {
+                $parts[] = sprintf('%d nyt skibsdesign', count($designsCreated));
+            }
             if (count($researchCompleted) > 0) {
                 $parts[] = sprintf('%d forskningsteknologi(er)', count($researchCompleted));
             }
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen flådebevægelser, koloniseringer, produktioner, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
+                    ? 'Ingen flådebevægelser, koloniseringer, produktioner, designs, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
                     : ucfirst(implode(', ', $parts)).' blev udført.',
                 'movements' => $movements,
                 'colonizations' => $colonizations,
                 'productions' => $productions,
                 'installation_upgrades_completed' => $installationUpgradesCompleted,
+                'designs_created' => $designsCreated,
                 'research_completed' => $researchCompleted,
                 'research_progress' => $researchProgress,
                 'research_income' => $researchIncome,

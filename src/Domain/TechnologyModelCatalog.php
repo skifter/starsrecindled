@@ -80,56 +80,90 @@ final class TechnologyModelCatalog
         throw new \LogicException(sprintf('No baseline component for category %s.', $category));
     }
 
-    /** @param list<string> $completed @return array<string, mixed> */
-    private static function generatedScoutDesign(array $completed, int $generation): array
+    /**
+     * @param list<array<string, mixed>> $components
+     * @return array<string, mixed>
+     */
+    private static function buildDesign(array $components, int $generation, string $name, string $family, ?string $basedOnDesignId = null): array
     {
-        $hull = self::bestComponent('hull', $completed);
-        $engine = self::bestComponent('engine', $completed);
-        $scanner = self::bestComponent('scanner', $completed);
-        $weapon = self::bestComponent('weapon', $completed);
-        $armor = self::bestComponent('armor', $completed);
-        $components = [$hull, $engine, $scanner, $weapon, $armor];
-        $componentRefs = array_map(static fn (array $component): array => [
-            'category' => (string) $component['category'],
-            'modelId' => (string) $component['id'],
-            'name' => (string) $component['name'],
-            'version' => (int) $component['version'],
-        ], $components);
+        $byCategory = [];
+        $componentRefs = [];
         $industryCost = 0;
         foreach ($components as $component) {
-            $industryCost += (int) ($component['stats']['industryCost'] ?? 0);
+            $category = (string) ($component['category'] ?? '');
+            if ($category === '') {
+                continue;
+            }
+            $byCategory[$category] = $component;
+            $componentRefs[] = [
+                'category' => $category,
+                'modelId' => (string) $component['id'],
+                'name' => (string) $component['name'],
+                'version' => (int) $component['version'],
+            ];
+            $industryCost += max(0, (int) ($component['stats']['industryCost'] ?? 0));
         }
-        $stats = [
-            'movementRange' => max(1, (int) ($engine['stats']['movementRange'] ?? 1)),
-            'sensorRange' => max(0, (int) ($scanner['stats']['sensorRange'] ?? 0)),
-            'attack' => max(0, (int) ($weapon['stats']['attack'] ?? 0)),
-            'defense' => max(0, (int) ($armor['stats']['defense'] ?? 0)),
-            'fuelCapacity' => max(1, (int) ($hull['stats']['fuelCapacity'] ?? 100)),
-            'fuelUsePerHop' => max(1, (int) ($engine['stats']['fuelUsePerHop'] ?? 35)),
-        ];
+
+        foreach (['hull', 'engine', 'scanner', 'weapon', 'armor'] as $requiredCategory) {
+            if (!isset($byCategory[$requiredCategory])) {
+                throw new \LogicException(sprintf('Ship design is missing category %s.', $requiredCategory));
+            }
+        }
+
+        $hull = $byCategory['hull'];
+        $engine = $byCategory['engine'];
+        $scanner = $byCategory['scanner'];
+        $weapon = $byCategory['weapon'];
+        $armor = $byCategory['armor'];
         $signature = implode(':', array_map(static fn (array $component): string => (string) $component['id'], $components));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', strtolower($family)) ?: 'ship';
 
         return [
-            'id' => sprintf('scout-g%d-%s', $generation, substr(sha1($signature), 0, 10)),
-            'name' => sprintf('Scout Mk %s', self::roman($generation)),
-            'family' => 'scout',
+            'id' => sprintf('%s-g%d-%s', trim($slug, '-'), $generation, substr(sha1($signature), 0, 10)),
+            'name' => $name,
+            'family' => $family,
             'generation' => $generation,
             'components' => $componentRefs,
-            'stats' => $stats,
+            'stats' => [
+                'movementRange' => max(1, (int) ($engine['stats']['movementRange'] ?? 1)),
+                'sensorRange' => max(0, (int) ($scanner['stats']['sensorRange'] ?? 0)),
+                'attack' => max(0, (int) ($weapon['stats']['attack'] ?? 0)),
+                'defense' => max(0, (int) ($armor['stats']['defense'] ?? 0)),
+                'fuelCapacity' => max(1, (int) ($hull['stats']['fuelCapacity'] ?? 100)),
+                'fuelUsePerHop' => max(1, (int) ($engine['stats']['fuelUsePerHop'] ?? 35)),
+            ],
             'industryCost' => max(300, $industryCost),
             'batchSize' => 40,
             'unlocked' => true,
             'current' => true,
             'obsolete' => false,
+            'basedOnDesignId' => $basedOnDesignId,
             'signature' => $signature,
         ];
+    }
+
+    /** @param list<string> $completed @return array<string, mixed> */
+    private static function generatedScoutDesign(array $completed, int $generation): array
+    {
+        $components = [
+            self::bestComponent('hull', $completed),
+            self::bestComponent('engine', $completed),
+            self::bestComponent('scanner', $completed),
+            self::bestComponent('weapon', $completed),
+            self::bestComponent('armor', $completed),
+        ];
+
+        return self::buildDesign(
+            $components,
+            $generation,
+            sprintf('Scout Mk %s', self::roman($generation)),
+            'scout',
+        );
     }
 
     /** @param array<string, mixed> $state @return list<array<string, mixed>> */
     public static function playerDesigns(array $state, int $playerId): array
     {
-        $research = ResearchCatalog::playerState($state, $playerId);
-        $completed = is_array($research['completed'] ?? null) ? array_values($research['completed']) : [];
         $designRoot = is_array($state['designs'] ?? null) ? $state['designs'] : [];
         $raw = $designRoot[(string) $playerId] ?? $designRoot[$playerId] ?? [];
         $designs = [];
@@ -137,34 +171,51 @@ final class TechnologyModelCatalog
             if (!is_array($design) || !is_string($design['id'] ?? null)) {
                 continue;
             }
-            $design['current'] = false;
+            $design['current'] = (bool) ($design['current'] ?? false);
             $design['obsolete'] = (bool) ($design['obsolete'] ?? false);
             $design['unlocked'] = true;
-            $design['signature'] = self::designSignature($design);
             $designs[] = $design;
         }
 
+        // Research only unlocks component models. It must never silently create a
+        // new ship generation. A new game therefore starts with exactly one
+        // baseline Scout design and later generations are explicit player choices.
         if ($designs === []) {
-            $designs[] = self::generatedScoutDesign([], 1);
-            $designs[0]['current'] = false;
+            $baseline = self::generatedScoutDesign([], 1);
+            unset($baseline['signature']);
+            $designs[] = $baseline;
         }
 
-        $latestGeneration = max(array_map(static fn (array $design): int => (int) ($design['generation'] ?? 1), $designs));
-        $currentCandidate = self::generatedScoutDesign($completed, $latestGeneration + 1);
-        $currentSignature = (string) ($currentCandidate['signature'] ?? '');
-        $matchingIndex = null;
+        $currentIndex = null;
+        $currentGeneration = -1;
         foreach ($designs as $index => $design) {
-            if (($design['signature'] ?? null) === $currentSignature) {
-                $matchingIndex = $index;
-                break;
+            if (($design['current'] ?? false) !== true || ($design['obsolete'] ?? false) === true) {
+                continue;
+            }
+            $generation = (int) ($design['generation'] ?? 1);
+            if ($generation > $currentGeneration) {
+                $currentGeneration = $generation;
+                $currentIndex = $index;
             }
         }
-        if ($matchingIndex === null) {
-            $designs[] = $currentCandidate;
-            $matchingIndex = array_key_last($designs);
+        if ($currentIndex === null) {
+            foreach ($designs as $index => $design) {
+                if (($design['obsolete'] ?? false) === true) {
+                    continue;
+                }
+                $generation = (int) ($design['generation'] ?? 1);
+                if ($generation > $currentGeneration) {
+                    $currentGeneration = $generation;
+                    $currentIndex = $index;
+                }
+            }
         }
+        if ($currentIndex === null) {
+            $currentIndex = array_key_last($designs);
+        }
+
         foreach ($designs as $index => &$design) {
-            $design['current'] = $index === $matchingIndex;
+            $design['current'] = $index === $currentIndex;
             unset($design['signature']);
         }
         unset($design);
@@ -204,6 +255,101 @@ final class TechnologyModelCatalog
             }
         }
         return self::generatedScoutDesign([], 1);
+    }
+
+    /**
+     * Build and validate a new immutable ship generation from an existing design.
+     * Research unlocks components; this method is the explicit step that turns
+     * unlocked hardware into a new design.
+     *
+     * @param array<string, mixed> $state
+     * @param array<string, mixed> $componentModelIds category => model id
+     * @return array<string, mixed>
+     */
+    public static function createDesign(array $state, int $playerId, string $baseDesignId, string $name, array $componentModelIds): array
+    {
+        $base = self::resolveDesign($state, $playerId, $baseDesignId);
+        if ($base === null) {
+            throw new \InvalidArgumentException(sprintf('Base ship design %s does not exist.', $baseDesignId));
+        }
+
+        $name = trim($name);
+        if ($name === '' || strlen($name) > 48) {
+            throw new \InvalidArgumentException('Ship design name must contain 1-48 characters.');
+        }
+
+        $research = ResearchCatalog::playerState($state, $playerId);
+        $completed = is_array($research['completed'] ?? null) ? array_values($research['completed']) : [];
+        $requiredCategories = ['hull', 'engine', 'scanner', 'weapon', 'armor'];
+        $components = [];
+        foreach ($requiredCategories as $category) {
+            $modelId = is_string($componentModelIds[$category] ?? null) ? trim((string) $componentModelIds[$category]) : '';
+            $component = $modelId !== '' ? (self::COMPONENTS[$modelId] ?? null) : null;
+            if (!is_array($component) || ($component['category'] ?? null) !== $category) {
+                throw new \InvalidArgumentException(sprintf('Ship design requires a valid %s component.', $category));
+            }
+            if (!self::unlocked($component, $completed)) {
+                throw new \InvalidArgumentException(sprintf('%s is not unlocked by completed research.', (string) $component['name']));
+            }
+            $components[] = $component;
+        }
+
+        $baseHullId = null;
+        foreach (is_array($base['components'] ?? null) ? $base['components'] : [] as $component) {
+            if (is_array($component) && ($component['category'] ?? null) === 'hull') {
+                $baseHullId = is_string($component['modelId'] ?? null) ? $component['modelId'] : null;
+                break;
+            }
+        }
+        $baseHull = $baseHullId !== null ? (self::COMPONENTS[$baseHullId] ?? null) : null;
+        $newHull = $components[0] ?? null;
+        if (is_array($baseHull) && is_array($newHull) && ($baseHull['family'] ?? null) !== ($newHull['family'] ?? null)) {
+            throw new \InvalidArgumentException('A new generation must keep the same hull family as its base design.');
+        }
+
+        $designs = self::playerDesigns($state, $playerId);
+        foreach ($designs as $existing) {
+            if (strcasecmp((string) ($existing['name'] ?? ''), $name) === 0) {
+                throw new \InvalidArgumentException(sprintf('A ship design named %s already exists.', $name));
+            }
+        }
+
+        $family = (string) ($base['family'] ?? 'scout');
+        $latestGeneration = 0;
+        foreach ($designs as $existing) {
+            if (($existing['family'] ?? null) === $family) {
+                $latestGeneration = max($latestGeneration, (int) ($existing['generation'] ?? 1));
+            }
+        }
+        $candidate = self::buildDesign($components, $latestGeneration + 1, $name, $family, $baseDesignId);
+        $candidateSignature = (string) ($candidate['signature'] ?? '');
+        foreach ($designs as $existing) {
+            if (self::designSignature($existing) === $candidateSignature) {
+                throw new \InvalidArgumentException('That exact component combination already exists as a ship design.');
+            }
+        }
+        unset($candidate['signature']);
+
+        return $candidate;
+    }
+
+    /** @param array<string, mixed> $state @param array<string, mixed> $design @return array<string, mixed> */
+    public static function appendDesign(array $state, int $playerId, array $design, int $turnNumber): array
+    {
+        $designs = self::playerDesigns($state, $playerId);
+        foreach ($designs as &$existing) {
+            $existing['current'] = false;
+        }
+        unset($existing);
+
+        $design['current'] = true;
+        $design['obsolete'] = false;
+        $design['unlocked'] = true;
+        $design['createdTurn'] = $turnNumber;
+        $designs[] = $design;
+        $state['designs'] = is_array($state['designs'] ?? null) ? $state['designs'] : [];
+        $state['designs'][(string) $playerId] = array_values($designs);
+        return $state;
     }
 
     /** @param array<string, mixed> $fleet @param array<string, mixed> $state @return array<string, mixed> */

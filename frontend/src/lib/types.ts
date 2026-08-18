@@ -183,6 +183,7 @@ export interface ResearchTechnology {
 }
 
 export type ModelCategory = 'hull' | 'engine' | 'scanner' | 'weapon' | 'armor' | 'installation';
+export type ShipComponentCategory = Exclude<ModelCategory, 'installation'>;
 
 export interface TechnologyModel {
   id: string;
@@ -200,7 +201,7 @@ export interface TechnologyModel {
 }
 
 export interface ShipDesignComponentRef {
-  category: Exclude<ModelCategory, 'installation'>;
+  category: ShipComponentCategory;
   modelId: string;
   name: string;
   version: number;
@@ -225,6 +226,17 @@ export interface ShipDesign {
   unlocked: boolean;
   current: boolean;
   obsolete?: boolean;
+  basedOnDesignId?: string | null;
+  createdTurn?: number;
+}
+
+export interface ShipDesignOrder {
+  action: 'create';
+  baseDesignId: string;
+  name: string;
+  componentModelIds: Record<ShipComponentCategory, string>;
+  designId?: string;
+  generation?: number;
 }
 
 export interface PlanetInstallation {
@@ -288,6 +300,7 @@ export interface PlayerOrders {
   fleets: FleetOrder[];
   production: ProductionOrder[];
   research?: ResearchOrder[];
+  designs?: ShipDesignOrder[];
   [key: string]: unknown;
 }
 
@@ -420,6 +433,17 @@ export interface TurnReportInstallationUpgradeCompleted {
   completedTurn: number;
 }
 
+export interface TurnReportDesignCreated {
+  designId: string;
+  name: string;
+  family: string;
+  generation: number;
+  basedOnDesignId?: string | null;
+  components: ShipDesignComponentRef[];
+  stats: ShipDesign['stats'];
+  industryCost: number;
+}
+
 export interface TurnReportResearchCompleted {
   technologyId: string;
   name: string;
@@ -456,6 +480,7 @@ export interface TurnReportData {
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];
   installation_upgrades_completed?: TurnReportInstallationUpgradeCompleted[];
+  designs_created?: TurnReportDesignCreated[];
   research_completed?: TurnReportResearchCompleted[];
   research_progress?: TurnReportResearchProgress | null;
   research_income?: number;

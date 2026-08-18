@@ -8,6 +8,9 @@
 - Explicit multi-turn upgrades for versioned planetary installations through production orders.
 - Planet UI for queued/in-progress installation upgrades and Turn Report completion events.
 - Collapsible Planets overview with all colony cards collapsed by default and key colony stats kept in the header row.
+- Added an explicit ship design editor that clones an existing immutable generation and lets the player choose only researched component models.
+- Added turn draft orders for new ship generations, including server-side component/research validation, persistent design lineage and Turn Report events.
+- Added a design-generation smoke test covering immutable old generations, unlocked component selection and rejection of duplicate/locked designs.
 
 ### Changed
 
@@ -17,6 +20,8 @@
 - Planet cards use native collapsed details and lightweight compact headers so expand/collapse does not trigger a full Svelte list-state update.
 - Queued installation upgrades are disabled and visually muted with an explicit `IN QUEUE` state until the submitted turn is processed.
 - The Galaxy planet detail overview now shows Development percentage alongside Population, Happiness and Sensor range.
+- Completing hardware research now unlocks component models without automatically creating or replacing a ship design; a new generation requires an explicit player design order.
+- A newly queued ship design becomes the current new-build design only after the turn is processed; production already queued this turn keeps its exact design version.
 
 ### Fixed
 
