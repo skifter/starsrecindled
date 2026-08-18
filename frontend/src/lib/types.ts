@@ -117,6 +117,8 @@ export interface FleetSummary {
   defense?: number;
   fuelCapacity?: number;
   fuelUsePerHop?: number;
+  fuel?: number;
+  operationalRange?: number;
 }
 
 export interface StarSystem {
@@ -362,6 +364,8 @@ export interface ServerFleetState {
   defense?: number;
   fuelCapacity?: number;
   fuelUsePerHop?: number;
+  fuel?: number;
+  operationalRange?: number;
 }
 
 export interface ServerSystemState {
@@ -446,6 +450,20 @@ export interface TurnReportMovement {
   fleetId: string;
   fromSystemId: string;
   toSystemId: string;
+  distance?: number;
+  fuelUsed?: number;
+  fuelRemaining?: number;
+  fuelCapacity?: number;
+}
+
+export interface TurnReportFuelRefill {
+  fleetId: string;
+  fleetName: string;
+  systemId: string;
+  fuelBefore: number;
+  fuelAfter: number;
+  fuelAdded: number;
+  fuelCapacity: number;
 }
 
 export interface TurnReportFleetAction {
@@ -557,6 +575,7 @@ export interface TurnReportData {
   fleet_actions?: TurnReportFleetAction[];
   refits_started?: TurnReportFleetRefit[];
   refits_completed?: TurnReportFleetRefit[];
+  fuel_refills?: TurnReportFuelRefill[];
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];

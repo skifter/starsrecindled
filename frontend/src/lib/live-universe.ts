@@ -49,7 +49,9 @@ export function mapLiveUniverse(
         attack: fleet.attack,
         defense: fleet.defense,
         fuelCapacity: fleet.fuelCapacity,
-        fuelUsePerHop: fleet.fuelUsePerHop
+        fuelUsePerHop: fleet.fuelUsePerHop,
+        fuel: fleet.fuel,
+        operationalRange: fleet.operationalRange
       }));
 
     return {

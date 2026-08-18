@@ -92,8 +92,10 @@
     fleet.ownerPlayerId === connection.playerId && colonyCapacity(fleet) > 0
   ) ?? null;
   $: movementRange = demoMode ? 1 : Math.max(1, planningFleetCurrent?.movementRange ?? 1);
+  $: fuelHopRange = demoMode || !planningFleetCurrent ? movementRange : effectiveFuelHopRange(planningFleetCurrent);
+  $: planningRange = demoMode ? movementRange : Math.max(0, Math.min(movementRange, fuelHopRange));
   $: validDestinationIds = planningFleetCurrent
-    ? systemsWithinRange(planningFleetCurrent.systemId ?? '', movementRange)
+    ? systemsWithinRange(planningFleetCurrent.systemId ?? '', planningRange)
     : [];
   $: researchProjectId = orders.research?.[0]?.technologyId ?? orders.research?.[0]?.field ?? status?.research?.activeTechnologyId ?? '';
   $: researchProjectName = status?.research_catalog?.find((technology) => technology.id === researchProjectId)?.name ?? 'Choose technology';
@@ -138,9 +140,18 @@
         localNotice = 'Select a different system within movement range.';
         return;
       }
-      const distance = routeDistance(sourceSystemId, system.id, movementRange);
-      if (distance === null || distance > movementRange) {
-        localNotice = `${system.name} is outside ${planningFleet.name}'s ${movementRange}-hop movement range.`;
+      const currentFleet = planningFleetCurrent ?? planningFleet;
+      const speedRange = Math.max(1, currentFleet.movementRange ?? 1);
+      const distance = routeDistance(sourceSystemId, system.id, speedRange);
+      if (distance === null || distance > speedRange) {
+        localNotice = `${system.name} is outside ${planningFleet.name}'s ${speedRange}-hop movement range.`;
+        return;
+      }
+      const currentFuelRange = effectiveFuelHopRange(currentFleet);
+      if (distance > currentFuelRange) {
+        const available = availableFuelForMove(currentFleet);
+        const use = Math.max(0, Number(currentFleet.fuelUsePerHop ?? 0));
+        localNotice = `${planningFleet.name} lacks fuel for ${distance} hop${distance === 1 ? '' : 's'} (${available} available, ${distance * use} required).`;
         return;
       }
 
@@ -211,6 +222,21 @@
   function colonyCapacity(fleet: FleetSummary): number {
     if (typeof fleet.colonizationCapacity === 'number') return fleet.colonizationCapacity;
     return fleet.role === 'Exploration fleet' ? 1 : 0;
+  }
+
+  function availableFuelForMove(fleet: FleetSummary): number {
+    const capacity = Math.max(0, Number(fleet.fuelCapacity ?? 0));
+    if (capacity <= 0) return 0;
+    const current = Math.max(0, Math.min(capacity, Number(fleet.fuel ?? capacity)));
+    const system = gameSystems.find((entry) => entry.id === fleet.systemId);
+    return system?.ownerPlayerId === connection.playerId ? capacity : current;
+  }
+
+  function effectiveFuelHopRange(fleet: FleetSummary): number {
+    const use = Math.max(0, Number(fleet.fuelUsePerHop ?? 0));
+    const capacity = Math.max(0, Number(fleet.fuelCapacity ?? 0));
+    if (use <= 0 || capacity <= 0) return Math.max(1, fleet.movementRange ?? 1);
+    return Math.max(0, Math.floor(availableFuelForMove(fleet) / use));
   }
 
   function serverUniverseReady(): boolean {
@@ -499,8 +525,12 @@
     planningFleet = fleet;
     activeSection = 'galaxy';
     rightPanelOpen = true;
-    const fleetRange = demoMode ? 1 : Math.max(1, fleet.movementRange ?? 1);
-    localNotice = `Planning ${fleet.name}: choose one of the highlighted systems within ${fleetRange} hop${fleetRange === 1 ? '' : 's'}.`;
+    const speedRange = demoMode ? 1 : Math.max(1, fleet.movementRange ?? 1);
+    const fuelRange = demoMode ? speedRange : effectiveFuelHopRange(fleet);
+    const fleetRange = demoMode ? speedRange : Math.max(0, Math.min(speedRange, fuelRange));
+    localNotice = fleetRange > 0
+      ? `Planning ${fleet.name}: ${speedRange} hop speed · ${fuelRange} hop fuel range. Choose a highlighted system within ${fleetRange} hop${fleetRange === 1 ? '' : 's'}.`
+      : `${fleet.name} has no operational fuel range here. Return/refuel at one of your colonies before moving.`;
   }
 
   function addWaypoint(action: 'move' | 'colonize' = 'move'): void {

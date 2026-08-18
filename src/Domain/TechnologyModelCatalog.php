@@ -432,6 +432,11 @@ final class TechnologyModelCatalog
             $fuelUse = (int) ceil($fuelUse * (100 - $fuelEfficiency) / 100);
         }
 
+        $fuel = array_key_exists('fuel', $fleet) && is_numeric($fleet['fuel'])
+            ? max(0, min($fuelCapacity, (int) $fleet['fuel']))
+            : $fuelCapacity;
+        $operationalRange = $fuelUse > 0 ? intdiv($fuel, $fuelUse) : 0;
+
         $fleet['composition'] = $composition;
         $fleet['movementRange'] = max(1, $movement ?? 1);
         $fleet['sensorRange'] = $sensor;
@@ -439,6 +444,8 @@ final class TechnologyModelCatalog
         $fleet['defense'] = $defense;
         $fleet['fuelCapacity'] = $fuelCapacity;
         $fleet['fuelUsePerHop'] = $fuelUse;
+        $fleet['fuel'] = $fuel;
+        $fleet['operationalRange'] = max(0, $operationalRange);
         $fleet['legacyColonizationCapacity'] = $legacyColonizationCapacity;
         $fleet['colonizationCapacity'] = $compositionColonizationCapacity + $legacyColonizationCapacity;
         return $fleet;

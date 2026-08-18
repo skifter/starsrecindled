@@ -105,6 +105,36 @@ final class DemoTurnEngine implements TurnEngineInterface
             }
         }
 
+        // Fleets automatically refuel before orders are resolved when they start
+        // the processing cycle at one of their owner's colonies. This lets a fleet
+        // arrive low on fuel one turn, then depart full on the following turn.
+        $fuelRefillsByPlayer = [];
+        foreach ($fleets as $fleetIndex => $fleet) {
+            if (!is_array($fleet) || !isset($fleet['ownerPlayerId']) || !is_numeric($fleet['ownerPlayerId'])) {
+                continue;
+            }
+            $ownerId = (int) $fleet['ownerPlayerId'];
+            $normalized = TechnologyModelCatalog::normalizeFleet($fleet, $state);
+            $systemId = is_string($normalized['systemId'] ?? null) ? $normalized['systemId'] : '';
+            $capacity = max(0, (int) ($normalized['fuelCapacity'] ?? 0));
+            $before = max(0, min($capacity, (int) ($normalized['fuel'] ?? $capacity)));
+
+            if ($systemId !== '' && ($startingOwners[$systemId] ?? null) === $ownerId && $before < $capacity) {
+                $normalized['fuel'] = $capacity;
+                $normalized = TechnologyModelCatalog::normalizeFleet($normalized, $state);
+                $fuelRefillsByPlayer[$ownerId][] = [
+                    'fleetId' => (string) ($normalized['id'] ?? ''),
+                    'fleetName' => (string) ($normalized['name'] ?? $normalized['id'] ?? 'Fleet'),
+                    'systemId' => $systemId,
+                    'fuelBefore' => $before,
+                    'fuelAfter' => $capacity,
+                    'fuelAdded' => $capacity - $before,
+                    'fuelCapacity' => $capacity,
+                ];
+            }
+            $fleets[$fleetIndex] = $normalized;
+        }
+
         $reports = [];
         foreach ($submittedOrders as $playerId => $orders) {
             $playerIdInt = (int) $playerId;
@@ -114,6 +144,7 @@ final class DemoTurnEngine implements TurnEngineInterface
             $fleetActions = [];
             $refitsStarted = [];
             $refitsCompleted = $refitCompletionsByPlayer[$playerIdInt] ?? [];
+            $fuelRefills = $fuelRefillsByPlayer[$playerIdInt] ?? [];
             $installationUpgradesCompleted = $upgradeCompletionsByPlayer[$playerIdInt] ?? [];
             $designsCreated = [];
             $researchCompleted = [];
@@ -245,6 +276,9 @@ final class DemoTurnEngine implements TurnEngineInterface
                         continue;
                     }
 
+                    $movedFuelCapacity = $this->compositionFuelCapacity(is_array($entry) ? $entry : [], $quantity);
+                    $movedFuel = $this->fuelShareForCapacity($fleet, $movedFuelCapacity);
+
                     $newEntry = $entry;
                     $newEntry['quantity'] = $quantity;
                     $composition[$entryIndex]['quantity'] = $available - $quantity;
@@ -253,6 +287,7 @@ final class DemoTurnEngine implements TurnEngineInterface
                     }
                     $fleet['composition'] = array_values($composition);
                     $fleet['ships'] = max(0, (int) ($fleet['ships'] ?? 0) - $quantity);
+                    $fleet['fuel'] = max(0, (int) ($fleet['fuel'] ?? 0) - $movedFuel);
                     $fleets[$fleetIndex] = TechnologyModelCatalog::normalizeFleet($fleet, $state);
 
                     $newFleetId = sprintf('fleet-%d-split-%d-%d', $playerIdInt, $turn->getNumber() + 1, $fleetManagementSequence);
@@ -264,6 +299,7 @@ final class DemoTurnEngine implements TurnEngineInterface
                         'ships' => $quantity,
                         'role' => 'Task force',
                         'legacyColonizationCapacity' => 0,
+                        'fuel' => $movedFuel,
                         'composition' => [$newEntry],
                     ], $state);
                     $fleets[] = $newFleet;
@@ -324,17 +360,22 @@ final class DemoTurnEngine implements TurnEngineInterface
                         continue;
                     }
 
+                    $movedFuelCapacity = $this->compositionFuelCapacity(is_array($entry) ? $entry : [], $quantity);
+                    $movedFuel = $this->fuelShareForCapacity($fleet, $movedFuelCapacity);
+
                     $sourceComposition[$sourceEntryIndex]['quantity'] = $available - $quantity;
                     if ((int) $sourceComposition[$sourceEntryIndex]['quantity'] <= 0) {
                         array_splice($sourceComposition, $sourceEntryIndex, 1);
                     }
                     $fleet['composition'] = array_values($sourceComposition);
                     $fleet['ships'] = max(0, (int) ($fleet['ships'] ?? 0) - $quantity);
+                    $fleet['fuel'] = max(0, (int) ($fleet['fuel'] ?? 0) - $movedFuel);
 
                     $targetComposition = is_array($targetFleet['composition'] ?? null) ? array_values($targetFleet['composition']) : [];
                     $targetComposition = $this->addCompositionQuantity($targetComposition, is_array($entry) ? $entry : [], $quantity);
                     $targetFleet['composition'] = $targetComposition;
                     $targetFleet['ships'] = max(0, (int) ($targetFleet['ships'] ?? 0)) + $quantity;
+                    $targetFleet['fuel'] = max(0, (int) ($targetFleet['fuel'] ?? 0)) + $movedFuel;
 
                     $fleets[$fleetIndex] = TechnologyModelCatalog::normalizeFleet($fleet, $state);
                     $fleets[$targetIndex] = TechnologyModelCatalog::normalizeFleet($targetFleet, $state);
@@ -367,6 +408,8 @@ final class DemoTurnEngine implements TurnEngineInterface
                     $targetFleet['ships'] = max(0, (int) ($targetFleet['ships'] ?? 0)) + max(0, (int) ($fleet['ships'] ?? 0));
                     $targetFleet['legacyColonizationCapacity'] = max(0, (int) ($targetFleet['legacyColonizationCapacity'] ?? 0))
                         + max(0, (int) ($fleet['legacyColonizationCapacity'] ?? 0));
+                    $targetFleet['fuel'] = max(0, (int) ($targetFleet['fuel'] ?? 0))
+                        + max(0, (int) ($fleet['fuel'] ?? 0));
                     $fleets[$targetIndex] = TechnologyModelCatalog::normalizeFleet($targetFleet, $state);
                     array_splice($fleets, $fleetIndex, 1);
 
@@ -508,13 +551,34 @@ final class DemoTurnEngine implements TurnEngineInterface
                     continue;
                 }
 
+                $fuelUsePerHop = max(0, (int) ($fleet['fuelUsePerHop'] ?? 0));
+                $fuelAvailable = max(0, (int) ($fleet['fuel'] ?? 0));
+                $fuelRequired = $routeDistance * $fuelUsePerHop;
+                if ($fuelRequired > $fuelAvailable) {
+                    $warnings[] = sprintf(
+                        'Flåden %s mangler brændstof til %s: %d tilgængelig, %d kræves for %d hop.',
+                        $fleetId,
+                        $targetSystemId,
+                        $fuelAvailable,
+                        $fuelRequired,
+                        $routeDistance,
+                    );
+                    continue;
+                }
+
                 $fleets[$fleetIndex]['systemId'] = $targetSystemId;
+                $fleets[$fleetIndex]['fuel'] = max(0, $fuelAvailable - $fuelRequired);
                 unset($fleets[$fleetIndex]['destinationSystemId']);
+                $fleets[$fleetIndex] = TechnologyModelCatalog::normalizeFleet($fleets[$fleetIndex], $state);
                 $movedFleetIds[$fleetId] = true;
                 $movements[] = [
                     'fleetId' => $fleetId,
                     'fromSystemId' => $fromSystemId,
                     'toSystemId' => $targetSystemId,
+                    'distance' => $routeDistance,
+                    'fuelUsed' => $fuelRequired,
+                    'fuelRemaining' => (int) ($fleets[$fleetIndex]['fuel'] ?? 0),
+                    'fuelCapacity' => (int) ($fleets[$fleetIndex]['fuelCapacity'] ?? 0),
                 ];
             }
 
@@ -833,6 +897,9 @@ final class DemoTurnEngine implements TurnEngineInterface
             if (count($refitsCompleted) > 0) {
                 $parts[] = sprintf('%d refit afsluttet', count($refitsCompleted));
             }
+            if (count($fuelRefills) > 0) {
+                $parts[] = sprintf('%d optankning(er)', count($fuelRefills));
+            }
             if (count($movements) > 0) {
                 $parts[] = sprintf('%d flådebevægelse(r)', count($movements));
             }
@@ -854,11 +921,12 @@ final class DemoTurnEngine implements TurnEngineInterface
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen fleet management, refits, flådebevægelser, koloniseringer, produktioner, designs, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
+                    ? 'Ingen fleet management, refits, optankninger, flådebevægelser, koloniseringer, produktioner, designs, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
                     : ucfirst(implode(', ', $parts)).' blev udført.',
                 'fleet_actions' => $fleetActions,
                 'refits_started' => $refitsStarted,
                 'refits_completed' => $refitsCompleted,
+                'fuel_refills' => $fuelRefills,
                 'movements' => $movements,
                 'colonizations' => $colonizations,
                 'productions' => $productions,
@@ -1053,6 +1121,25 @@ final class DemoTurnEngine implements TurnEngineInterface
 
         $targetBatch = max(1, (int) ($target['batchSize'] ?? 1));
         return max(1, (int) ceil(max(1, $changedBatchCost) * max(1, $quantity) / $targetBatch));
+    }
+
+    /** @param array<string, mixed> $entry */
+    private function compositionFuelCapacity(array $entry, int $quantity): int
+    {
+        $stats = is_array($entry['stats'] ?? null) ? $entry['stats'] : [];
+        return max(0, $quantity) * max(0, (int) ($stats['fuelCapacity'] ?? 0));
+    }
+
+    /** @param array<string, mixed> $fleet */
+    private function fuelShareForCapacity(array $fleet, int $movedCapacity): int
+    {
+        $capacity = max(0, (int) ($fleet['fuelCapacity'] ?? 0));
+        $fuel = max(0, min($capacity, (int) ($fleet['fuel'] ?? $capacity)));
+        if ($capacity <= 0 || $fuel <= 0 || $movedCapacity <= 0) {
+            return 0;
+        }
+
+        return min($fuel, (int) round($fuel * min($capacity, $movedCapacity) / $capacity));
     }
 
     /** @param list<mixed> $fleets */

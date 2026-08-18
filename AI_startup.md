@@ -70,7 +70,7 @@ Known production-style layout:
 
 Frontend lives below `frontend/`.
 
-## Current gameplay state at release 0.7.3
+## Current gameplay state at release 0.7.4
 
 The project has progressed through the following major systems:
 
@@ -192,29 +192,43 @@ Old designs may remain buildable or be marked obsolete according to gameplay/UI 
 - Legacy starting-fleet colony capacity is tracked separately from component-backed colony ships so split/merge/refit cannot duplicate or lose it.
 - Turn Report exposes fleet management actions and refit start/completion events.
 
+## Fuel and operations (0.7.4)
+
+- Public application version is `0.7.4`.
+- Fuel is persistent fleet state, not a display-only derived value.
+- Fleet fuel capacity is the sum of the exact installed ship generations' hull fuel capacity.
+- Fuel use per hop is the sum of the exact installed engines' consumption, modified only by legitimate applied fuel-efficiency research.
+- Existing fleets from pre-0.7.4 games receive a full tank the first time they are normalized, preserving backwards compatibility.
+- Movement consumes `route hops × fleet fuelUsePerHop` and is rejected if the fleet lacks fuel.
+- Per-turn movement is constrained by both installed drive movement range and current fuel endurance.
+- Fleets automatically refuel to full before orders are resolved when they start processing at one of their owner's colonies.
+- A fleet arriving at an owned colony does not refuel retroactively in the arrival turn; it refuels before orders on the following processed turn.
+- Split/transfer carry proportional fuel with the moved ship fuel capacity; merge combines fuel pools and never creates fuel.
+- Refit preserves absolute fuel while hardware is unchanged; completion clamps to the new capacity and owned-colony refuelling then fills the fleet normally.
+- Turn Report includes automatic refuelling plus exact hop count, fuel spent and fuel remaining for movement.
+
 ## Version roadmap
 
 Current release:
 
-- `0.7.3` – Fleet management, explicit refit, versioned installations/designs and repeatable colony ships
+- `0.7.4` – Persistent fuel, refuelling, operational range, fleet management/refit and repeatable colony ships
 
 Planned sequence:
 
-- `0.7.4` – Fuel consumption, refuelling and operational range
 - `0.8.0` – Combat
 - `0.9.0` – Diplomacy
 - `1.0.0` – coherent core gameplay loop
 
-Do not rush Combat ahead of the fuel/operations foundation. Advanced AI behavior should follow stable fleet, fuel and combat rules rather than being rewritten around temporary mechanics.
+Advanced AI behavior should follow stable combat rules rather than being rewritten around temporary mechanics.
 
 ## Immediate next development
 
-After the deployed `0.7.3` fleet-management/refit release is stable:
-1. implement real fleet fuel state, fuel consumption per hop and refuelling at owned colonies;
-2. preserve the hardware/software rule: engine replacements require new build/refit, while legitimate fuel/logistics optimization research may improve existing fleets globally;
-3. expose fuel/range clearly in FLEETS and route planning;
-4. move to Combat (`0.8.0`) once design, production, colony ships, fleet organization, refit and fuel are stable;
-5. expand Standard AI behavior after those mechanics have stable actions to plan against.
+After the deployed `0.7.4` fuel/operations release is stable:
+1. start Combat (`0.8.0`) using exact fleet composition, installed weapon/armor generations and current fleet state;
+2. keep the first combat model deterministic and reportable before adding tactical complexity;
+3. make combat losses remove exact ship-generation quantities from fleet composition;
+4. keep fog-of-war and sensor visibility authoritative for combat reports;
+5. expand Standard AI once combat gives it stable expansion, production and engagement actions to plan.
 
 ## Changelog policy
 

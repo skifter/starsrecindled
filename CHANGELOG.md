@@ -9,6 +9,23 @@
 
 ### Fixed
 
+## 0.7.4 - 2026-08-18
+
+### Added
+- Added persistent per-fleet fuel state with exact aggregated capacity and fuel consumption derived from installed ship generations.
+- Added automatic refuelling for fleets that begin turn processing at one of their owner's colonies.
+- Added operational fuel range to fleet status, route planning and turn reports.
+- Added fuel-operation smoke coverage for backwards-compatible full tanks, consumption, refuelling, insufficient-fuel rejection and applied fuel-efficiency research.
+
+### Changed
+- Fleet movement now consumes fuel for every route hop and is constrained by both installed drive speed and available fuel.
+- Split and transfer move a proportional share of the source fleet's fuel with the transferred ship capacity; merge combines both fuel pools without creating fuel.
+- Applied fuel-efficiency research continues to improve existing fleets without replacing their installed engines, while engine research still only unlocks new hardware generations.
+- Public application version advanced from 0.7.3 to 0.7.4.
+
+### Fixed
+- Fleet normalization now preserves partial fuel instead of implicitly treating every normalized fleet as fully fuelled.
+
 ## 0.7.3 - 2026-08-18
 
 ### Added
