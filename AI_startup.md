@@ -48,7 +48,8 @@ Important gameplay themes:
 - political / sphere-of-influence borders
 - research and technology progression
 - versioned ship components and ship generations
-- later: upgrades, refit, fuel, combat and diplomacy
+- fleet management and explicit refit
+- later: fuel, combat and diplomacy
 
 ## Technical stack
 
@@ -69,7 +70,7 @@ Known production-style layout:
 
 Frontend lives below `frontend/`.
 
-## Current gameplay state at baseline 0.7.1
+## Current gameplay state at release 0.7.3
 
 The project has progressed through the following major systems:
 
@@ -174,27 +175,46 @@ A design can include:
 
 Old designs may remain buildable or be marked obsolete according to gameplay/UI rules.
 
+## Fleet management and refit (0.7.3)
+
+- Public application version is `0.7.3`.
+- Fleets preserve exact immutable ship design generations in their composition.
+- Player fleet management supports rename, split, transfer and merge as explicit turn orders.
+- Split/transfer operate on an exact `designId` and quantity; merge combines exact composition entries rather than flattening generations.
+- Structural fleet actions require fleets to be owned by the player; transfer/merge additionally require both fleets to be in the same system.
+- A fleet involved in structural fleet management cannot move or colonize in the same processing cycle.
+- Refit is explicit and never happens automatically after research.
+- Refit requires the fleet to be at one of the player's colonies at the start of the turn.
+- Refit source and target must use the same hull family, and the target must be a strictly newer persisted generation.
+- Refit industry is paid when work starts. Only changed hardware is charged; unchanged hardware is reused and replaced components provide a salvage credit.
+- Refit takes two turn-processing cycles. Old hardware remains active until completion, and the fleet is locked from movement/colonization/structural management while work is active.
+- Partial refit is supported, so one fleet can contain old and new generations simultaneously after completion.
+- Legacy starting-fleet colony capacity is tracked separately from component-backed colony ships so split/merge/refit cannot duplicate or lose it.
+- Turn Report exposes fleet management actions and refit start/completion events.
+
 ## Version roadmap
 
-Current baseline:
+Current release:
 
-- `0.7.1` – Models & Designs
+- `0.7.3` – Fleet management, explicit refit, versioned installations/designs and repeatable colony ships
 
 Planned sequence:
 
-- `0.7.2` – Upgrades, refit & fuel
+- `0.7.4` – Fuel consumption, refuelling and operational range
 - `0.8.0` – Combat
 - `0.9.0` – Diplomacy
 - `1.0.0` – coherent core gameplay loop
 
-Do not rush Combat ahead of the equipment/refit/fuel foundation.
+Do not rush Combat ahead of the fuel/operations foundation. Advanced AI behavior should follow stable fleet, fuel and combat rules rather than being rewritten around temporary mechanics.
 
 ## Immediate next development
 
-After dev6 repeatable colony ships are stable on the deployed server:
-1. add fleet refit between compatible exact ship generations with explicit cost/time and no automatic hardware upgrades;
-2. add fuel consumption/range behavior and software/logistics/fuel improvements that may affect existing hardware where appropriate;
-3. move to Combat (`0.8.0`) after design, production, refit and fuel behavior are stable.
+After the deployed `0.7.3` fleet-management/refit release is stable:
+1. implement real fleet fuel state, fuel consumption per hop and refuelling at owned colonies;
+2. preserve the hardware/software rule: engine replacements require new build/refit, while legitimate fuel/logistics optimization research may improve existing fleets globally;
+3. expose fuel/range clearly in FLEETS and route planning;
+4. move to Combat (`0.8.0`) once design, production, colony ships, fleet organization, refit and fuel are stable;
+5. expand Standard AI behavior after those mechanics have stable actions to plan against.
 
 ## Changelog policy
 

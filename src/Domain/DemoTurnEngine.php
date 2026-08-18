@@ -86,21 +86,48 @@ final class DemoTurnEngine implements TurnEngineInterface
             }
         }
 
+        // Fleet refits already in progress advance before this turn's new fleet
+        // orders are resolved. Hardware remains unchanged until the refit completes.
+        $refitCompletionsByPlayer = [];
+        $refitWarningsByPlayer = [];
+        foreach ($fleets as $fleetIndex => $fleet) {
+            if (!is_array($fleet) || !isset($fleet['ownerPlayerId']) || !is_numeric($fleet['ownerPlayerId'])) {
+                continue;
+            }
+            $ownerId = (int) $fleet['ownerPlayerId'];
+            $advanced = $this->advanceFleetRefit($fleet, $state, $turn->getNumber() + 1);
+            $fleets[$fleetIndex] = $advanced['fleet'];
+            if ($advanced['completed'] !== null) {
+                $refitCompletionsByPlayer[$ownerId][] = $advanced['completed'];
+            }
+            if ($advanced['warning'] !== null) {
+                $refitWarningsByPlayer[$ownerId][] = $advanced['warning'];
+            }
+        }
+
         $reports = [];
         foreach ($submittedOrders as $playerId => $orders) {
             $playerIdInt = (int) $playerId;
             $movements = [];
             $colonizations = [];
             $productions = [];
+            $fleetActions = [];
+            $refitsStarted = [];
+            $refitsCompleted = $refitCompletionsByPlayer[$playerIdInt] ?? [];
             $installationUpgradesCompleted = $upgradeCompletionsByPlayer[$playerIdInt] ?? [];
             $designsCreated = [];
             $researchCompleted = [];
             $researchProgress = null;
-            $warnings = $upgradeWarningsByPlayer[$playerIdInt] ?? [];
+            $warnings = array_merge(
+                $upgradeWarningsByPlayer[$playerIdInt] ?? [],
+                $refitWarningsByPlayer[$playerIdInt] ?? [],
+            );
             $movedFleetIds = [];
+            $managedFleetIds = [];
+            $fleetManagementSequence = 0;
             $playerResearch = ResearchCatalog::playerState(['research' => $researchByPlayer], $playerIdInt);
             $researchIncome = ResearchCatalog::estimateIncome($state, $playerIdInt);
-            $fleetOrders = is_array($orders['fleets'] ?? null) ? $orders['fleets'] : [];
+            $fleetOrders = is_array($orders['fleets'] ?? null) ? array_values($orders['fleets']) : [];
 
             // Ship generations are explicit design orders. Research only unlocks
             // component models; a completed technology never mutates or silently
@@ -136,6 +163,299 @@ final class DemoTurnEngine implements TurnEngineInterface
                 }
             }
 
+            // Fleet organization is explicit turn state. Split/transfer/merge and
+            // refit happen before movement. A fleet involved in structural work this
+            // turn cannot also move or colonize; rename is the only harmless exception.
+            foreach ($fleetOrders as $fleetOrder) {
+                if (!is_array($fleetOrder)) {
+                    continue;
+                }
+                $action = is_string($fleetOrder['action'] ?? null) ? $fleetOrder['action'] : '';
+                if (!in_array($action, ['rename', 'split', 'transfer', 'merge', 'refit'], true)) {
+                    continue;
+                }
+
+                $fleetId = is_string($fleetOrder['fleetId'] ?? null) ? trim($fleetOrder['fleetId']) : '';
+                if ($fleetId === '') {
+                    $warnings[] = sprintf('Fleet %s order mangler fleetId.', $action);
+                    continue;
+                }
+                $fleetIndex = $this->findFleetIndex($fleets, $fleetId);
+                if ($fleetIndex === null || !is_array($fleets[$fleetIndex])) {
+                    $warnings[] = sprintf('Flåden %s findes ikke.', $fleetId);
+                    continue;
+                }
+
+                $fleet = TechnologyModelCatalog::normalizeFleet($fleets[$fleetIndex], $state);
+                $fleets[$fleetIndex] = $fleet;
+                if ((int) ($fleet['ownerPlayerId'] ?? 0) !== $playerIdInt) {
+                    $warnings[] = sprintf('Flåden %s tilhører ikke spiller %s.', $fleetId, $playerId);
+                    continue;
+                }
+
+                if ($action === 'rename') {
+                    $name = is_string($fleetOrder['name'] ?? null) ? trim($fleetOrder['name']) : '';
+                    if ($name === '' || mb_strlen($name) > 40) {
+                        $warnings[] = sprintf('Flåden %s kunne ikke omdøbes: navnet skal være 1-40 tegn.', $fleetId);
+                        continue;
+                    }
+                    $oldName = (string) ($fleet['name'] ?? $fleetId);
+                    $fleets[$fleetIndex]['name'] = $name;
+                    $fleetActions[] = [
+                        'action' => 'rename',
+                        'fleetId' => $fleetId,
+                        'fromName' => $oldName,
+                        'toName' => $name,
+                    ];
+                    continue;
+                }
+
+                if (isset($managedFleetIds[$fleetId])) {
+                    $warnings[] = sprintf('Flåden %s har allerede en strukturel fleet-ordre denne runde.', $fleetId);
+                    continue;
+                }
+                if (is_array($fleet['refit'] ?? null)) {
+                    $warnings[] = sprintf('Flåden %s er allerede under refit og kan ikke omorganiseres.', $fleetId);
+                    continue;
+                }
+
+                if ($action === 'split') {
+                    $designId = is_string($fleetOrder['designId'] ?? null) ? trim($fleetOrder['designId']) : '';
+                    $quantity = max(1, (int) ($fleetOrder['quantity'] ?? 0));
+                    $entryIndex = $this->findCompositionIndex($fleet, $designId);
+                    if ($designId === '' || $entryIndex === null) {
+                        $warnings[] = sprintf('Split af %s mangler et gyldigt design.', $fleetId);
+                        continue;
+                    }
+                    $composition = is_array($fleet['composition'] ?? null) ? array_values($fleet['composition']) : [];
+                    $entry = $composition[$entryIndex] ?? null;
+                    $available = is_array($entry) ? max(0, (int) ($entry['quantity'] ?? 0)) : 0;
+                    if ($quantity > $available || $quantity >= max(1, (int) ($fleet['ships'] ?? 0))) {
+                        $warnings[] = sprintf('Split af %s kræver 1-%d skibe og skal efterlade mindst ét skib i kildeflåden.', $fleetId, max(0, min($available, (int) ($fleet['ships'] ?? 0) - 1)));
+                        continue;
+                    }
+
+                    $newName = is_string($fleetOrder['name'] ?? null) ? trim($fleetOrder['name']) : '';
+                    ++$fleetManagementSequence;
+                    if ($newName === '') {
+                        $newName = sprintf('%s Detachment %d', (string) ($fleet['name'] ?? 'Fleet'), $fleetManagementSequence);
+                    }
+                    if (mb_strlen($newName) > 40) {
+                        $warnings[] = sprintf('Den nye flådes navn må højst være 40 tegn.');
+                        continue;
+                    }
+
+                    $newEntry = $entry;
+                    $newEntry['quantity'] = $quantity;
+                    $composition[$entryIndex]['quantity'] = $available - $quantity;
+                    if ((int) $composition[$entryIndex]['quantity'] <= 0) {
+                        array_splice($composition, $entryIndex, 1);
+                    }
+                    $fleet['composition'] = array_values($composition);
+                    $fleet['ships'] = max(0, (int) ($fleet['ships'] ?? 0) - $quantity);
+                    $fleets[$fleetIndex] = TechnologyModelCatalog::normalizeFleet($fleet, $state);
+
+                    $newFleetId = sprintf('fleet-%d-split-%d-%d', $playerIdInt, $turn->getNumber() + 1, $fleetManagementSequence);
+                    $newFleet = TechnologyModelCatalog::normalizeFleet([
+                        'id' => $newFleetId,
+                        'ownerPlayerId' => $playerIdInt,
+                        'systemId' => (string) ($fleet['systemId'] ?? ''),
+                        'name' => $newName,
+                        'ships' => $quantity,
+                        'role' => 'Task force',
+                        'legacyColonizationCapacity' => 0,
+                        'composition' => [$newEntry],
+                    ], $state);
+                    $fleets[] = $newFleet;
+                    $managedFleetIds[$fleetId] = true;
+                    $managedFleetIds[$newFleetId] = true;
+                    $fleetActions[] = [
+                        'action' => 'split',
+                        'fleetId' => $fleetId,
+                        'newFleetId' => $newFleetId,
+                        'designId' => $designId,
+                        'designName' => (string) ($newEntry['designName'] ?? $designId),
+                        'quantity' => $quantity,
+                        'name' => $newName,
+                    ];
+                    continue;
+                }
+
+                $targetFleetId = is_string($fleetOrder['targetFleetId'] ?? null) ? trim($fleetOrder['targetFleetId']) : '';
+                if (in_array($action, ['transfer', 'merge'], true)) {
+                    if ($targetFleetId === '' || $targetFleetId === $fleetId) {
+                        $warnings[] = sprintf('%s af %s kræver en anden målflåde.', ucfirst($action), $fleetId);
+                        continue;
+                    }
+                    $targetIndex = $this->findFleetIndex($fleets, $targetFleetId);
+                    if ($targetIndex === null || !is_array($fleets[$targetIndex])) {
+                        $warnings[] = sprintf('Målflåden %s findes ikke.', $targetFleetId);
+                        continue;
+                    }
+                    $targetFleet = TechnologyModelCatalog::normalizeFleet($fleets[$targetIndex], $state);
+                    $fleets[$targetIndex] = $targetFleet;
+                    if ((int) ($targetFleet['ownerPlayerId'] ?? 0) !== $playerIdInt) {
+                        $warnings[] = sprintf('Målflåden %s tilhører ikke spilleren.', $targetFleetId);
+                        continue;
+                    }
+                    if (($targetFleet['systemId'] ?? null) !== ($fleet['systemId'] ?? null)) {
+                        $warnings[] = sprintf('%s og %s skal være i samme system for %s.', $fleetId, $targetFleetId, $action);
+                        continue;
+                    }
+                    if (isset($managedFleetIds[$targetFleetId]) || is_array($targetFleet['refit'] ?? null)) {
+                        $warnings[] = sprintf('Målflåden %s er allerede optaget af anden fleet management/refit.', $targetFleetId);
+                        continue;
+                    }
+                }
+
+                if ($action === 'transfer') {
+                    $designId = is_string($fleetOrder['designId'] ?? null) ? trim($fleetOrder['designId']) : '';
+                    $quantity = max(1, (int) ($fleetOrder['quantity'] ?? 0));
+                    $sourceEntryIndex = $this->findCompositionIndex($fleet, $designId);
+                    if ($designId === '' || $sourceEntryIndex === null) {
+                        $warnings[] = sprintf('Transfer fra %s mangler et gyldigt design.', $fleetId);
+                        continue;
+                    }
+                    $sourceComposition = is_array($fleet['composition'] ?? null) ? array_values($fleet['composition']) : [];
+                    $entry = $sourceComposition[$sourceEntryIndex] ?? null;
+                    $available = is_array($entry) ? max(0, (int) ($entry['quantity'] ?? 0)) : 0;
+                    if ($quantity > $available || $quantity >= max(1, (int) ($fleet['ships'] ?? 0))) {
+                        $warnings[] = sprintf('Transfer fra %s skal efterlade mindst ét skib i kildeflåden.', $fleetId);
+                        continue;
+                    }
+
+                    $sourceComposition[$sourceEntryIndex]['quantity'] = $available - $quantity;
+                    if ((int) $sourceComposition[$sourceEntryIndex]['quantity'] <= 0) {
+                        array_splice($sourceComposition, $sourceEntryIndex, 1);
+                    }
+                    $fleet['composition'] = array_values($sourceComposition);
+                    $fleet['ships'] = max(0, (int) ($fleet['ships'] ?? 0) - $quantity);
+
+                    $targetComposition = is_array($targetFleet['composition'] ?? null) ? array_values($targetFleet['composition']) : [];
+                    $targetComposition = $this->addCompositionQuantity($targetComposition, is_array($entry) ? $entry : [], $quantity);
+                    $targetFleet['composition'] = $targetComposition;
+                    $targetFleet['ships'] = max(0, (int) ($targetFleet['ships'] ?? 0)) + $quantity;
+
+                    $fleets[$fleetIndex] = TechnologyModelCatalog::normalizeFleet($fleet, $state);
+                    $fleets[$targetIndex] = TechnologyModelCatalog::normalizeFleet($targetFleet, $state);
+                    $managedFleetIds[$fleetId] = true;
+                    $managedFleetIds[$targetFleetId] = true;
+                    $fleetActions[] = [
+                        'action' => 'transfer',
+                        'fleetId' => $fleetId,
+                        'targetFleetId' => $targetFleetId,
+                        'designId' => $designId,
+                        'designName' => (string) (($entry['designName'] ?? null) ?: $designId),
+                        'quantity' => $quantity,
+                    ];
+                    continue;
+                }
+
+                if ($action === 'merge') {
+                    $targetComposition = is_array($targetFleet['composition'] ?? null) ? array_values($targetFleet['composition']) : [];
+                    foreach (is_array($fleet['composition'] ?? null) ? $fleet['composition'] : [] as $entry) {
+                        if (!is_array($entry)) {
+                            continue;
+                        }
+                        $targetComposition = $this->addCompositionQuantity(
+                            $targetComposition,
+                            $entry,
+                            max(0, (int) ($entry['quantity'] ?? 0)),
+                        );
+                    }
+                    $targetFleet['composition'] = $targetComposition;
+                    $targetFleet['ships'] = max(0, (int) ($targetFleet['ships'] ?? 0)) + max(0, (int) ($fleet['ships'] ?? 0));
+                    $targetFleet['legacyColonizationCapacity'] = max(0, (int) ($targetFleet['legacyColonizationCapacity'] ?? 0))
+                        + max(0, (int) ($fleet['legacyColonizationCapacity'] ?? 0));
+                    $fleets[$targetIndex] = TechnologyModelCatalog::normalizeFleet($targetFleet, $state);
+                    array_splice($fleets, $fleetIndex, 1);
+
+                    $managedFleetIds[$fleetId] = true;
+                    $managedFleetIds[$targetFleetId] = true;
+                    $fleetActions[] = [
+                        'action' => 'merge',
+                        'fleetId' => $fleetId,
+                        'targetFleetId' => $targetFleetId,
+                        'shipsMerged' => max(0, (int) ($fleet['ships'] ?? 0)),
+                    ];
+                    continue;
+                }
+
+                if ($action === 'refit') {
+                    $systemId = is_string($fleet['systemId'] ?? null) ? $fleet['systemId'] : '';
+                    if ($systemId === '' || ($startingOwners[$systemId] ?? null) !== $playerIdInt) {
+                        $warnings[] = sprintf('Refit af %s kræver, at flåden ligger ved en af dine kolonier ved rundens start.', $fleetId);
+                        continue;
+                    }
+                    $sourceDesignId = is_string($fleetOrder['designId'] ?? null) ? trim($fleetOrder['designId']) : '';
+                    $targetDesignId = is_string($fleetOrder['targetDesignId'] ?? null) ? trim($fleetOrder['targetDesignId']) : '';
+                    $quantity = max(1, (int) ($fleetOrder['quantity'] ?? 0));
+                    $sourceEntryIndex = $this->findCompositionIndex($fleet, $sourceDesignId);
+                    $sourceEntry = $sourceEntryIndex !== null && is_array($fleet['composition'][$sourceEntryIndex] ?? null)
+                        ? $fleet['composition'][$sourceEntryIndex]
+                        : null;
+                    $available = is_array($sourceEntry) ? max(0, (int) ($sourceEntry['quantity'] ?? 0)) : 0;
+                    $sourceDesign = $sourceDesignId !== '' ? TechnologyModelCatalog::resolveDesign($state, $playerIdInt, $sourceDesignId) : null;
+                    $targetDesign = $targetDesignId !== '' ? TechnologyModelCatalog::resolveDesign($state, $playerIdInt, $targetDesignId) : null;
+                    if ($sourceDesign === null || $targetDesign === null || $sourceEntry === null || $quantity > $available) {
+                        $warnings[] = sprintf('Refit-ordren for %s refererer til et ukendt design eller for mange skibe.', $fleetId);
+                        continue;
+                    }
+                    if (($sourceDesign['family'] ?? null) !== ($targetDesign['family'] ?? null)) {
+                        $warnings[] = sprintf('Refit af %s kræver samme hull family.', $fleetId);
+                        continue;
+                    }
+                    if ((int) ($targetDesign['generation'] ?? 0) <= (int) ($sourceDesign['generation'] ?? 0)) {
+                        $warnings[] = sprintf('Refit af %s skal gå til en nyere generation.', $fleetId);
+                        continue;
+                    }
+                    if (($targetDesign['unlocked'] ?? false) !== true || ($targetDesign['obsolete'] ?? false) === true) {
+                        $warnings[] = sprintf('Måldesignet %s er ikke tilgængeligt til refit.', (string) ($targetDesign['name'] ?? $targetDesignId));
+                        continue;
+                    }
+
+                    $systemIndex = $systemIds[$systemId] ?? null;
+                    if (!is_int($systemIndex) || !isset($systems[$systemIndex]) || !is_array($systems[$systemIndex])) {
+                        $warnings[] = sprintf('Refit-systemet %s findes ikke.', $systemId);
+                        continue;
+                    }
+                    $industryIndex = $this->findResourceIndex($systems[$systemIndex], 'industry');
+                    if ($industryIndex === null) {
+                        $warnings[] = sprintf('%s har ingen industry-ressource til refit.', $systemId);
+                        continue;
+                    }
+                    $industryCost = $this->refitCost($sourceDesign, $targetDesign, $quantity);
+                    $availableIndustry = max(0, (int) ($systems[$systemIndex]['resources'][$industryIndex]['value'] ?? 0));
+                    if ($availableIndustry < $industryCost) {
+                        $warnings[] = sprintf(
+                            '%s mangler industry til refit af %s: %d tilgængelig, %d kræves.',
+                            (string) ($systems[$systemIndex]['name'] ?? $systemId),
+                            (string) ($fleet['name'] ?? $fleetId),
+                            $availableIndustry,
+                            $industryCost,
+                        );
+                        continue;
+                    }
+
+                    $systems[$systemIndex]['resources'][$industryIndex]['value'] = $availableIndustry - $industryCost;
+                    $refit = [
+                        'fromDesignId' => $sourceDesignId,
+                        'fromDesignName' => (string) ($sourceDesign['name'] ?? $sourceDesignId),
+                        'toDesignId' => $targetDesignId,
+                        'toDesignName' => (string) ($targetDesign['name'] ?? $targetDesignId),
+                        'quantity' => $quantity,
+                        'industryCost' => $industryCost,
+                        'turnsTotal' => 2,
+                        'turnsRemaining' => 1,
+                        'startedTurn' => $turn->getNumber() + 1,
+                        'systemId' => $systemId,
+                    ];
+                    $fleets[$fleetIndex]['refit'] = $refit;
+                    $managedFleetIds[$fleetId] = true;
+                    $refitsStarted[] = ['fleetId' => $fleetId, 'fleetName' => (string) ($fleet['name'] ?? $fleetId), ...$refit];
+                }
+            }
+
             // Movement is resolved before colonization. A fleet that moved this turn
             // cannot colonize until the following turn.
             foreach ($fleetOrders as $fleetOrder) {
@@ -159,6 +479,10 @@ final class DemoTurnEngine implements TurnEngineInterface
                 $fleet = $fleets[$fleetIndex];
                 if ((string) ($fleet['ownerPlayerId'] ?? '') !== (string) $playerId) {
                     $warnings[] = sprintf('Flåden %s tilhører ikke spiller %s.', $fleetId, $playerId);
+                    continue;
+                }
+                if (isset($managedFleetIds[$fleetId]) || is_array($fleet['refit'] ?? null)) {
+                    $warnings[] = sprintf('Flåden %s kan ikke flytte, mens den omorganiseres eller er under refit.', $fleetId);
                     continue;
                 }
                 $fleet = TechnologyModelCatalog::normalizeFleet($fleet, $state);
@@ -219,6 +543,10 @@ final class DemoTurnEngine implements TurnEngineInterface
                 $fleet = $fleets[$fleetIndex];
                 if ((string) ($fleet['ownerPlayerId'] ?? '') !== (string) $playerId) {
                     $warnings[] = sprintf('Flåden %s tilhører ikke spiller %s.', $fleetId, $playerId);
+                    continue;
+                }
+                if (isset($managedFleetIds[$fleetId]) || is_array($fleet['refit'] ?? null)) {
+                    $warnings[] = sprintf('Flåden %s kan ikke kolonisere, mens den omorganiseres eller er under refit.', $fleetId);
                     continue;
                 }
                 if (($fleet['systemId'] ?? null) !== $targetSystemId) {
@@ -496,6 +824,15 @@ final class DemoTurnEngine implements TurnEngineInterface
             $researchByPlayer[(string) $playerId] = $playerResearch;
 
             $parts = [];
+            if (count($fleetActions) > 0) {
+                $parts[] = sprintf('%d fleet management-handling(er)', count($fleetActions));
+            }
+            if (count($refitsStarted) > 0) {
+                $parts[] = sprintf('%d refit startet', count($refitsStarted));
+            }
+            if (count($refitsCompleted) > 0) {
+                $parts[] = sprintf('%d refit afsluttet', count($refitsCompleted));
+            }
             if (count($movements) > 0) {
                 $parts[] = sprintf('%d flådebevægelse(r)', count($movements));
             }
@@ -517,8 +854,11 @@ final class DemoTurnEngine implements TurnEngineInterface
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen flådebevægelser, koloniseringer, produktioner, designs, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
+                    ? 'Ingen fleet management, refits, flådebevægelser, koloniseringer, produktioner, designs, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
                     : ucfirst(implode(', ', $parts)).' blev udført.',
+                'fleet_actions' => $fleetActions,
+                'refits_started' => $refitsStarted,
+                'refits_completed' => $refitsCompleted,
                 'movements' => $movements,
                 'colonizations' => $colonizations,
                 'productions' => $productions,
@@ -539,6 +879,180 @@ final class DemoTurnEngine implements TurnEngineInterface
         $nextState = TechnologyModelCatalog::normalizeState($nextState);
 
         return new TurnGenerationResult($nextState, $reports);
+    }
+
+    /**
+     * @param array<string, mixed> $fleet
+     * @param array<string, mixed> $state
+     * @return array{fleet:array<string,mixed>,completed:array<string,mixed>|null,warning:string|null}
+     */
+    private function advanceFleetRefit(array $fleet, array $state, int $turnNumber): array
+    {
+        $refit = is_array($fleet['refit'] ?? null) ? $fleet['refit'] : null;
+        if ($refit === null) {
+            return ['fleet' => $fleet, 'completed' => null, 'warning' => null];
+        }
+
+        $turnsRemaining = max(1, (int) ($refit['turnsRemaining'] ?? 1));
+        if ($turnsRemaining > 1) {
+            $refit['turnsRemaining'] = $turnsRemaining - 1;
+            $fleet['refit'] = $refit;
+            return ['fleet' => $fleet, 'completed' => null, 'warning' => null];
+        }
+
+        $playerId = (int) ($fleet['ownerPlayerId'] ?? 0);
+        $fromDesignId = is_string($refit['fromDesignId'] ?? null) ? $refit['fromDesignId'] : '';
+        $toDesignId = is_string($refit['toDesignId'] ?? null) ? $refit['toDesignId'] : '';
+        $quantity = max(1, (int) ($refit['quantity'] ?? 0));
+        $sourceIndex = $this->findCompositionIndex($fleet, $fromDesignId);
+        $targetDesign = $toDesignId !== '' ? TechnologyModelCatalog::resolveDesign($state, $playerId, $toDesignId) : null;
+
+        if ($sourceIndex === null || $targetDesign === null) {
+            unset($fleet['refit']);
+            return [
+                'fleet' => TechnologyModelCatalog::normalizeFleet($fleet, $state),
+                'completed' => null,
+                'warning' => sprintf('Refit af %s kunne ikke afsluttes, fordi source/target design ikke længere findes.', (string) ($fleet['name'] ?? $fleet['id'] ?? 'fleet')),
+            ];
+        }
+
+        $composition = is_array($fleet['composition'] ?? null) ? array_values($fleet['composition']) : [];
+        $sourceEntry = is_array($composition[$sourceIndex] ?? null) ? $composition[$sourceIndex] : null;
+        $available = is_array($sourceEntry) ? max(0, (int) ($sourceEntry['quantity'] ?? 0)) : 0;
+        if ($sourceEntry === null || $available < $quantity) {
+            unset($fleet['refit']);
+            return [
+                'fleet' => TechnologyModelCatalog::normalizeFleet($fleet, $state),
+                'completed' => null,
+                'warning' => sprintf('Refit af %s kunne ikke afsluttes, fordi kildeflådens sammensætning ændrede sig.', (string) ($fleet['name'] ?? $fleet['id'] ?? 'fleet')),
+            ];
+        }
+
+        $composition[$sourceIndex]['quantity'] = $available - $quantity;
+        if ((int) $composition[$sourceIndex]['quantity'] <= 0) {
+            array_splice($composition, $sourceIndex, 1);
+        }
+        $targetEntry = [
+            'designId' => (string) $targetDesign['id'],
+            'designName' => (string) $targetDesign['name'],
+            'generation' => (int) ($targetDesign['generation'] ?? 1),
+            'quantity' => $quantity,
+            'components' => $targetDesign['components'] ?? [],
+            'stats' => $targetDesign['stats'] ?? [],
+        ];
+        $composition = $this->addCompositionQuantity($composition, $targetEntry, $quantity);
+        $fleet['composition'] = array_values($composition);
+        unset($fleet['refit']);
+        $fleet = TechnologyModelCatalog::normalizeFleet($fleet, $state);
+
+        return [
+            'fleet' => $fleet,
+            'completed' => [
+                'fleetId' => (string) ($fleet['id'] ?? ''),
+                'fleetName' => (string) ($fleet['name'] ?? $fleet['id'] ?? 'Fleet'),
+                'fromDesignId' => $fromDesignId,
+                'fromDesignName' => (string) ($refit['fromDesignName'] ?? $fromDesignId),
+                'toDesignId' => $toDesignId,
+                'toDesignName' => (string) ($targetDesign['name'] ?? $toDesignId),
+                'quantity' => $quantity,
+                'industryCost' => max(0, (int) ($refit['industryCost'] ?? 0)),
+                'completedTurn' => $turnNumber,
+            ],
+            'warning' => null,
+        ];
+    }
+
+    /** @param array<string, mixed> $fleet */
+    private function findCompositionIndex(array $fleet, string $designId): ?int
+    {
+        if ($designId === '') {
+            return null;
+        }
+        foreach (is_array($fleet['composition'] ?? null) ? array_values($fleet['composition']) : [] as $index => $entry) {
+            if (is_array($entry) && ($entry['designId'] ?? null) === $designId) {
+                return $index;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param list<mixed> $composition
+     * @param array<string, mixed> $entry
+     * @return list<mixed>
+     */
+    private function addCompositionQuantity(array $composition, array $entry, int $quantity): array
+    {
+        $quantity = max(0, $quantity);
+        $designId = is_string($entry['designId'] ?? null) ? $entry['designId'] : '';
+        if ($quantity < 1 || $designId === '') {
+            return array_values($composition);
+        }
+
+        foreach ($composition as $index => $candidate) {
+            if (!is_array($candidate) || ($candidate['designId'] ?? null) !== $designId) {
+                continue;
+            }
+            $composition[$index]['quantity'] = max(0, (int) ($candidate['quantity'] ?? 0)) + $quantity;
+            return array_values($composition);
+        }
+
+        $entry['quantity'] = $quantity;
+        $composition[] = $entry;
+        return array_values($composition);
+    }
+
+    /**
+     * Refit only charges for hardware that changes. Reused components carry no
+     * new-build cost, replacement components receive 50% salvage credit for the
+     * removed hardware, and pure removals have a small yard/labor charge.
+     *
+     * Design component costs are batch costs, so ordinary 40-ship Scout refits
+     * scale against the target batch size. Colony ships remain individual units.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $target
+     */
+    private function refitCost(array $source, array $target, int $quantity): int
+    {
+        $sourceByCategory = [];
+        foreach (is_array($source['components'] ?? null) ? $source['components'] : [] as $component) {
+            if (is_array($component) && is_string($component['category'] ?? null)) {
+                $sourceByCategory[(string) $component['category']] = $component;
+            }
+        }
+        $targetByCategory = [];
+        foreach (is_array($target['components'] ?? null) ? $target['components'] : [] as $component) {
+            if (is_array($component) && is_string($component['category'] ?? null)) {
+                $targetByCategory[(string) $component['category']] = $component;
+            }
+        }
+
+        $categories = array_unique(array_merge(array_keys($sourceByCategory), array_keys($targetByCategory)));
+        $changedBatchCost = 0;
+        foreach ($categories as $category) {
+            $from = $sourceByCategory[$category] ?? null;
+            $to = $targetByCategory[$category] ?? null;
+            $fromId = is_array($from) && is_string($from['modelId'] ?? null) ? $from['modelId'] : '';
+            $toId = is_array($to) && is_string($to['modelId'] ?? null) ? $to['modelId'] : '';
+            if ($fromId === $toId) {
+                continue;
+            }
+
+            $fromModel = $fromId !== '' ? TechnologyModelCatalog::model($fromId) : null;
+            $toModel = $toId !== '' ? TechnologyModelCatalog::model($toId) : null;
+            $fromCost = is_array($fromModel) ? max(0, (int) ($fromModel['stats']['industryCost'] ?? 0)) : 0;
+            $toCost = is_array($toModel) ? max(0, (int) ($toModel['stats']['industryCost'] ?? 0)) : 0;
+
+            if ($toCost > 0) {
+                $changedBatchCost += max(1, $toCost - intdiv($fromCost, 2));
+            } elseif ($fromCost > 0) {
+                $changedBatchCost += max(1, (int) ceil($fromCost * 0.10));
+            }
+        }
+
+        $targetBatch = max(1, (int) ($target['batchSize'] ?? 1));
+        return max(1, (int) ceil(max(1, $changedBatchCost) * max(1, $quantity) / $targetBatch));
     }
 
     /** @param list<mixed> $fleets */
@@ -673,6 +1187,11 @@ final class DemoTurnEngine implements TurnEngineInterface
             return ['fleet' => $fleet, 'designName' => $designName, 'shipConsumed' => true];
         }
 
+        $legacyCapacity = max(
+            0,
+            (int) ($fleet['legacyColonizationCapacity'] ?? $this->colonyCapacity($fleet)),
+        );
+        $fleet['legacyColonizationCapacity'] = max(0, $legacyCapacity - 1);
         $fleet['colonizationCapacity'] = max(0, $this->colonyCapacity($fleet) - 1);
         return ['fleet' => $fleet, 'designName' => null, 'shipConsumed' => false];
     }
@@ -684,7 +1203,11 @@ final class DemoTurnEngine implements TurnEngineInterface
             return max(0, (int) $fleet['colonizationCapacity']);
         }
 
-        // Backwards compatibility for 0.5.1/0.5.3 test games.
+        if (isset($fleet['legacyColonizationCapacity']) && is_numeric($fleet['legacyColonizationCapacity'])) {
+            return max(0, (int) $fleet['legacyColonizationCapacity']);
+        }
+
+        // Backwards compatibility for pre-dev6 starting test games.
         return ($fleet['role'] ?? null) === 'Exploration fleet' ? 1 : 0;
     }
 

@@ -10,6 +10,9 @@
   export let onOpenDesigns: () => void = () => {};
 
   $: data = report?.data ?? null;
+  $: fleetActions = data?.fleet_actions ?? [];
+  $: refitsStarted = data?.refits_started ?? [];
+  $: refitsCompleted = data?.refits_completed ?? [];
   $: movements = data?.movements ?? [];
   $: colonizations = data?.colonizations ?? [];
   $: productions = data?.productions ?? [];
@@ -19,7 +22,7 @@
   $: researchProgress = data?.research_progress ?? null;
   $: sightings = data?.sightings ?? [];
   $: warnings = data?.warnings ?? [];
-  $: eventCount = movements.length + colonizations.length + productions.length + installationUpgradesCompleted.length + designsCreated.length + researchCompleted.length + sightings.length;
+  $: eventCount = fleetActions.length + refitsStarted.length + refitsCompleted.length + movements.length + colonizations.length + productions.length + installationUpgradesCompleted.length + designsCreated.length + researchCompleted.length + sightings.length;
 
   function system(id: string): StarSystem | null {
     return systems.find((entry) => entry.id === id) ?? null;
@@ -31,6 +34,16 @@
 
   function fleetName(id: string): string {
     return systems.flatMap((entry) => entry.fleets).find((fleet) => fleet.id === id)?.name ?? id;
+  }
+
+  function fleetActionText(action: (typeof fleetActions)[number]): string {
+    switch (action.action) {
+      case 'rename': return `${action.fromName ?? action.fleetId} → ${action.toName ?? action.name ?? action.fleetId}`;
+      case 'split': return `${action.quantity ?? 0} × ${action.designName ?? action.designId ?? 'ships'} split into ${action.name ?? action.newFleetId ?? 'new fleet'}`;
+      case 'transfer': return `${action.quantity ?? 0} × ${action.designName ?? action.designId ?? 'ships'} transferred to ${fleetName(action.targetFleetId ?? '')}`;
+      case 'merge': return `${action.shipsMerged ?? 0} ships merged into ${fleetName(action.targetFleetId ?? '')}`;
+      default: return action.action;
+    }
   }
 
   function warningSystem(warning: string): StarSystem | null {
@@ -82,7 +95,7 @@
     <div class="empty panel-cut"><Icon name="report" size={42}/><h2>No previous turn report</h2><p>The first report appears after a turn has been processed.</p></div>
   {:else}
     {#if eventCount === 0 && warnings.length === 0 && !researchProgress}
-      <section class="quiet-turn panel-cut"><Icon name="report" size={22}/><div><strong>Quiet turn</strong><p>No movement, production, ship design, installation upgrade, colonization, research completion or sensor-contact changes were recorded for your empire.</p></div></section>
+      <section class="quiet-turn panel-cut"><Icon name="report" size={22}/><div><strong>Quiet turn</strong><p>No fleet management, refit, movement, production, ship design, installation upgrade, colonization, research completion or sensor-contact changes were recorded for your empire.</p></div></section>
     {/if}
 
     {#if warnings.length > 0}
@@ -121,6 +134,40 @@
           {/each}
         </div>
       {:else}<p class="none">No enemy contacts changed.</p>{/if}
+    </section>
+
+    <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="edit" size={18}/><strong>Fleet management</strong></span><em>{fleetActions.length}</em></div>
+      {#if fleetActions.length}
+        <div class="events">
+          {#each fleetActions as action}
+            <article class="event fleet-management-event">
+              <Icon name="fleet" size={18}/>
+              <div><strong>{action.action.toUpperCase()} · {fleetName(action.fleetId)}</strong><p>{fleetActionText(action)}</p></div>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No fleets were renamed, split, transferred or merged.</p>{/if}
+    </section>
+
+    <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="industry" size={18}/><strong>Fleet refit</strong></span><em>{refitsStarted.length + refitsCompleted.length}</em></div>
+      {#if refitsStarted.length || refitsCompleted.length}
+        <div class="events">
+          {#each refitsStarted as refit}
+            <article class="event refit-started-event">
+              <Icon name="industry" size={18}/>
+              <div><strong>{refit.fleetName} entered refit</strong><p>{refit.quantity} × {refit.fromDesignName} → {refit.toDesignName} · {refit.industryCost.toLocaleString('en-US')} industry paid · {refit.turnsTotal ?? 2} turns</p></div>
+            </article>
+          {/each}
+          {#each refitsCompleted as refit}
+            <article class="event success-event refit-complete-event">
+              <Icon name="fleet" size={18}/>
+              <div><strong>{refit.fleetName} refit completed</strong><p>{refit.quantity} × {refit.fromDesignName} → {refit.toDesignName}{refit.completedTurn ? ` · completed turn ${refit.completedTurn}` : ''}</p></div>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No fleet refits started or completed.</p>{/if}
     </section>
 
     <section class="report-section panel-cut">
@@ -229,6 +276,6 @@
 
 <style>
   .report-view{height:100%;overflow:auto;box-sizing:border-box;padding:1.35rem;background:radial-gradient(circle at 45% 12%,rgba(18,93,129,.13),transparent 44%),#030912;color:#8ea5b5}.view-header{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1rem}.eyebrow{margin:0 0 .3rem;color:#43c5ff;text-transform:uppercase;letter-spacing:.14em;font-size:.65rem}h1{margin:0;color:#edf9ff;font-size:1.65rem;font-weight:500;letter-spacing:.08em}.intro{max-width:760px;margin:.5rem 0 0;color:#7f98aa;font-size:.76rem;line-height:1.5}.summary{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:flex-end}.summary span{text-align:right}.summary strong,.summary small{display:block}.summary strong{color:#e4f4fb;font-size:.95rem}.summary small{margin-top:.12rem;color:#648296;text-transform:uppercase;font-size:.54rem;letter-spacing:.08em}.summary .warning strong{color:#efb55a}
-  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event strong{color:#efbd78}.warning-event p{color:#d1a06c}.warning-event .attention-action{border-color:rgba(229,155,71,.42);background:rgba(66,40,12,.62);color:#efbd78}.success-event{color:#71cf96}.design-event{color:#74d6ff;box-shadow:inset 2px 0 rgba(92,202,244,.5)}.upgrade-event{color:#e4c35e;box-shadow:inset 2px 0 rgba(228,195,94,.48)}.upgrade-event strong{color:#e7dcad}.research-event{color:#75d9ff;box-shadow:inset 2px 0 rgba(86,205,255,.55)}.research-progress-event{color:#6cb7d7}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
+  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event strong{color:#efbd78}.warning-event p{color:#d1a06c}.warning-event .attention-action{border-color:rgba(229,155,71,.42);background:rgba(66,40,12,.62);color:#efbd78}.success-event{color:#71cf96}.fleet-management-event{color:#72d7b1;box-shadow:inset 2px 0 rgba(82,209,158,.45)}.refit-started-event{color:#e1bd67;box-shadow:inset 2px 0 rgba(225,189,103,.48)}.refit-complete-event{box-shadow:inset 2px 0 rgba(113,207,150,.48)}.design-event{color:#74d6ff;box-shadow:inset 2px 0 rgba(92,202,244,.5)}.upgrade-event{color:#e4c35e;box-shadow:inset 2px 0 rgba(228,195,94,.48)}.upgrade-event strong{color:#e7dcad}.research-event{color:#75d9ff;box-shadow:inset 2px 0 rgba(86,205,255,.55)}.research-progress-event{color:#6cb7d7}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
   @media(max-width:800px){.view-header{display:grid}.summary{justify-content:flex-start}.summary span{text-align:left}.event{grid-template-columns:26px minmax(0,1fr)}.event button{grid-column:2;justify-self:start}.report-view{padding:.8rem}}
 </style>

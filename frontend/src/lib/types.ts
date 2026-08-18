@@ -108,7 +108,9 @@ export interface FleetSummary {
   systemId?: string;
   targetSystemId?: string;
   colonizationCapacity?: number;
+  legacyColonizationCapacity?: number;
   composition?: FleetCompositionEntry[];
+  refit?: FleetRefitState | null;
   movementRange?: number;
   sensorRange?: number;
   attack?: number;
@@ -151,10 +153,25 @@ export interface RouteLink {
   kind?: 'known' | 'planned' | 'hostile';
 }
 
+export type FleetOrderAction =
+  | 'move'
+  | 'hold'
+  | 'colonize'
+  | 'rename'
+  | 'split'
+  | 'transfer'
+  | 'merge'
+  | 'refit';
+
 export interface FleetOrder {
   fleetId: string;
-  action: 'move' | 'hold' | 'colonize';
+  action: FleetOrderAction;
   targetSystemId?: string;
+  targetFleetId?: string;
+  designId?: string;
+  targetDesignId?: string;
+  quantity?: number;
+  name?: string;
 }
 
 export interface ProductionOrder {
@@ -286,6 +303,19 @@ export interface FleetCompositionEntry {
   stats?: ShipDesign['stats'];
 }
 
+export interface FleetRefitState {
+  fromDesignId: string;
+  fromDesignName: string;
+  toDesignId: string;
+  toDesignName: string;
+  quantity: number;
+  industryCost: number;
+  turnsTotal: number;
+  turnsRemaining: number;
+  startedTurn: number;
+  systemId: string;
+}
+
 export interface ResearchModifiers {
   fleetMovementRange: number;
   colonySensorBonus: number;
@@ -323,7 +353,9 @@ export interface ServerFleetState {
   role: string;
   destinationSystemId?: string;
   colonizationCapacity?: number;
+  legacyColonizationCapacity?: number;
   composition?: FleetCompositionEntry[];
+  refit?: FleetRefitState | null;
   movementRange?: number;
   sensorRange?: number;
   attack?: number;
@@ -416,6 +448,36 @@ export interface TurnReportMovement {
   toSystemId: string;
 }
 
+export interface TurnReportFleetAction {
+  action: 'rename' | 'split' | 'transfer' | 'merge';
+  fleetId: string;
+  targetFleetId?: string;
+  newFleetId?: string;
+  fromName?: string;
+  toName?: string;
+  name?: string;
+  designId?: string;
+  designName?: string;
+  quantity?: number;
+  shipsMerged?: number;
+}
+
+export interface TurnReportFleetRefit {
+  fleetId: string;
+  fleetName: string;
+  fromDesignId: string;
+  fromDesignName: string;
+  toDesignId: string;
+  toDesignName: string;
+  quantity: number;
+  industryCost: number;
+  turnsTotal?: number;
+  turnsRemaining?: number;
+  startedTurn?: number;
+  systemId?: string;
+  completedTurn?: number;
+}
+
 export interface TurnReportColonization {
   fleetId: string;
   systemId: string;
@@ -492,6 +554,9 @@ export interface TurnReportSighting {
 
 export interface TurnReportData {
   message?: string;
+  fleet_actions?: TurnReportFleetAction[];
+  refits_started?: TurnReportFleetRefit[];
+  refits_completed?: TurnReportFleetRefit[];
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];

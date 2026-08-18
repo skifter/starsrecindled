@@ -400,7 +400,6 @@ final class TechnologyModelCatalog
         $fuelCapacity = 0;
         $fuelUse = 0;
         $compositionColonizationCapacity = 0;
-        $compositionDefinesColonization = false;
         foreach ($composition as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -414,10 +413,18 @@ final class TechnologyModelCatalog
             $defense += $quantity * max(0, (int) ($stats['defense'] ?? 0));
             $fuelCapacity += $quantity * max(0, (int) ($stats['fuelCapacity'] ?? 0));
             $fuelUse += $quantity * max(0, (int) ($stats['fuelUsePerHop'] ?? 0));
-            if (array_key_exists('colonizationCapacity', $stats)) {
-                $compositionDefinesColonization = true;
-                $compositionColonizationCapacity += $quantity * max(0, (int) $stats['colonizationCapacity']);
-            }
+            $compositionColonizationCapacity += $quantity * max(0, (int) ($stats['colonizationCapacity'] ?? 0));
+        }
+
+        // Pre-dev6 starting exploration fleets carried one fleet-level colony
+        // module. Keep that capacity separate from component-backed colony ships
+        // so split/merge/transfer operations never duplicate or silently discard it.
+        $legacyColonizationCapacity = max(0, (int) ($fleet['legacyColonizationCapacity'] ?? 0));
+        if (!array_key_exists('legacyColonizationCapacity', $fleet) && isset($fleet['colonizationCapacity']) && is_numeric($fleet['colonizationCapacity'])) {
+            $legacyColonizationCapacity = max(
+                0,
+                (int) $fleet['colonizationCapacity'] - $compositionColonizationCapacity,
+            );
         }
         $research = ResearchCatalog::playerState($state, $playerId);
         $fuelEfficiency = max(0, min(80, (int) ($research['modifiers']['fuelEfficiencyPercent'] ?? 0)));
@@ -432,12 +439,8 @@ final class TechnologyModelCatalog
         $fleet['defense'] = $defense;
         $fleet['fuelCapacity'] = $fuelCapacity;
         $fleet['fuelUsePerHop'] = $fuelUse;
-        if ($compositionDefinesColonization) {
-            $fleet['colonizationCapacity'] = $compositionColonizationCapacity;
-        } elseif (isset($fleet['colonizationCapacity']) && is_numeric($fleet['colonizationCapacity'])) {
-            // Preserve the one legacy starting colony module in existing games.
-            $fleet['colonizationCapacity'] = max(0, (int) $fleet['colonizationCapacity']);
-        }
+        $fleet['legacyColonizationCapacity'] = $legacyColonizationCapacity;
+        $fleet['colonizationCapacity'] = $compositionColonizationCapacity + $legacyColonizationCapacity;
         return $fleet;
     }
 

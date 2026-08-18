@@ -666,9 +666,11 @@
           selectedFleetId={selectedFleetCurrent?.id ?? ''}
           {orders}
           {editableTurn}
+          modelCatalog={status?.model_catalog ?? null}
           fuelEfficiencyPercent={status?.research?.modifiers.fuelEfficiencyPercent ?? 0}
           onLocate={(fleet, system) => selectFleet(fleet, system, true)}
           onPlanRoute={beginWaypointForFleet}
+          onOrdersChange={updateOrders}
         />
       {:else if activeSection === 'designs' && !demoMode}
         <DesignsView

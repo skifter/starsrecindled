@@ -5,6 +5,14 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## 0.7.3 - 2026-08-18
+
+### Added
+
 - Explicit multi-turn upgrades for versioned planetary installations through production orders.
 - Planet UI for queued/in-progress installation upgrades and Turn Report completion events.
 - Collapsible Planets overview with all colony cards collapsed by default and key colony stats kept in the header row.
@@ -19,6 +27,9 @@
 - Added Colony Module Mk I as a baseline-unlocked optional ship utility component for repeatable expansion.
 - Added component-backed colony ships that carry explicit COL capacity and are consumed when they successfully found a colony.
 - Added a colony-ship smoke test covering immutable Scout/Colony Ship coexistence, exact cost/batch behavior and legacy colony-module compatibility.
+- Added fleet management for renaming, splitting, transferring and merging fleets while preserving exact immutable ship generations.
+- Added explicit fleet refit from an installed ship generation to a newer compatible generation at an owned colony, with industry cost and turn duration.
+- Added fleet management/refit smoke coverage for structural orders, partial refits, exact composition preservation and completion reports.
 ### Changed
 
 - Installation upgrades validate exact sequential source/target models and research unlocks.
@@ -35,11 +46,15 @@
 - Ship designs can now contain an optional utility model; colony-capable designs build as one strategic ship per production unit while ordinary light designs retain their existing batch size.
 - Planet production can queue any persisted non-obsolete ship generation by exact design id, allowing Scout and Colony Ship generations to coexist in production.
 - Fleet and Turn Report views expose colony capacity and report when a colony ship was consumed during colonization.
+- Fleet refit charges only changed hardware, reuses unchanged components, applies salvage credit to replaced components and leaves old hardware active until work completes.
+- Fleets involved in split, transfer, merge or refit cannot move or colonize in the same processing cycle; active refits lock structural fleet actions until completion.
+- Released the accumulated 0.7.2 development work as public application version 0.7.3.
 ### Fixed
 
 - Loaded legacy installation build orders are removed from the local draft when that installation family is already present; the player must use an explicit upgrade order instead.
 - Production validation errors use the colony name and installed model name instead of internal system/family identifiers where possible.
 - Reduced lag when expanding or collapsing colonies in the Planets overview.
+- Kept legacy starting-fleet colony capacity separate from component-backed colony ships so fleet normalization and reorganization do not duplicate or silently discard it.
 
 ## 0.7.1
 
