@@ -3,7 +3,15 @@
 <!-- AI_STARTUP_MODERN_HISTORY -->
 ## Unreleased
 
-No unreleased changes recorded yet.
+### Added
+
+- Explicit multi-turn upgrades for versioned planetary installations through production orders.
+- Planet UI for queued/in-progress installation upgrades and Turn Report completion events.
+
+### Changed
+
+- Installation upgrades validate exact sequential source/target models and research unlocks.
+- The old installation remains active until the upgrade completes; upgrade effects are applied as version deltas at completion.
 
 ## 0.7.1
 

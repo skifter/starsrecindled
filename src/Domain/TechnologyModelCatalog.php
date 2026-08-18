@@ -26,14 +26,14 @@ final class TechnologyModelCatalog
     /** @var array<string, array<string, mixed>> */
     private const INSTALLATIONS = [
         'defense_grid_mk1' => ['id'=>'defense_grid_mk1','category'=>'installation','family'=>'defense_grid','name'=>'Defense Grid Mk I','version'=>1,'requires'=>[],'description'=>'First-generation planetary defense installation.','stats'=>['defenseAdd'=>250,'industryCost'=>250],'upgradeFrom'=>null,'upgradeCost'=>null],
-        'defense_grid_mk2' => ['id'=>'defense_grid_mk2','category'=>'installation','family'=>'defense_grid','name'=>'Defense Grid Mk II','version'=>2,'requires'=>['defenses_1'],'description'=>'Improved planetary defense hardware.','stats'=>['defenseAdd'=>350,'industryCost'=>360],'upgradeFrom'=>'defense_grid_mk1','upgradeCost'=>190],
-        'defense_grid_mk3' => ['id'=>'defense_grid_mk3','category'=>'installation','family'=>'defense_grid','name'=>'Defense Grid Mk III','version'=>3,'requires'=>['defenses_2'],'description'=>'Shield-assisted planetary defense network.','stats'=>['defenseAdd'=>500,'industryCost'=>500],'upgradeFrom'=>'defense_grid_mk2','upgradeCost'=>260],
+        'defense_grid_mk2' => ['id'=>'defense_grid_mk2','category'=>'installation','family'=>'defense_grid','name'=>'Defense Grid Mk II','version'=>2,'requires'=>['defenses_1'],'description'=>'Improved planetary defense hardware.','stats'=>['defenseAdd'=>350,'industryCost'=>360],'upgradeFrom'=>'defense_grid_mk1','upgradeCost'=>190,'upgradeTurns'=>2],
+        'defense_grid_mk3' => ['id'=>'defense_grid_mk3','category'=>'installation','family'=>'defense_grid','name'=>'Defense Grid Mk III','version'=>3,'requires'=>['defenses_2'],'description'=>'Shield-assisted planetary defense network.','stats'=>['defenseAdd'=>500,'industryCost'=>500],'upgradeFrom'=>'defense_grid_mk2','upgradeCost'=>260,'upgradeTurns'=>2],
         'orbital_factory_mk1' => ['id'=>'orbital_factory_mk1','category'=>'installation','family'=>'orbital_factory','name'=>'Orbital Factory Mk I','version'=>1,'requires'=>[],'description'=>'Baseline orbital production complex.','stats'=>['industryIncome'=>8,'developmentAdd'=>10,'industryCost'=>400],'upgradeFrom'=>null,'upgradeCost'=>null],
-        'orbital_factory_mk2' => ['id'=>'orbital_factory_mk2','category'=>'installation','family'=>'orbital_factory','name'=>'Orbital Factory Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Automated second-generation production hardware.','stats'=>['industryIncome'=>11,'developmentAdd'=>12,'industryCost'=>520],'upgradeFrom'=>'orbital_factory_mk1','upgradeCost'=>260],
-        'orbital_factory_mk3' => ['id'=>'orbital_factory_mk3','category'=>'installation','family'=>'orbital_factory','name'=>'Orbital Factory Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Autonomous high-throughput orbital industry.','stats'=>['industryIncome'=>15,'developmentAdd'=>15,'industryCost'=>690],'upgradeFrom'=>'orbital_factory_mk2','upgradeCost'=>340],
+        'orbital_factory_mk2' => ['id'=>'orbital_factory_mk2','category'=>'installation','family'=>'orbital_factory','name'=>'Orbital Factory Mk II','version'=>2,'requires'=>['industry_1'],'description'=>'Automated second-generation production hardware.','stats'=>['industryIncome'=>11,'developmentAdd'=>12,'industryCost'=>520],'upgradeFrom'=>'orbital_factory_mk1','upgradeCost'=>260,'upgradeTurns'=>2],
+        'orbital_factory_mk3' => ['id'=>'orbital_factory_mk3','category'=>'installation','family'=>'orbital_factory','name'=>'Orbital Factory Mk III','version'=>3,'requires'=>['industry_2'],'description'=>'Autonomous high-throughput orbital industry.','stats'=>['industryIncome'=>15,'developmentAdd'=>15,'industryCost'=>690],'upgradeFrom'=>'orbital_factory_mk2','upgradeCost'=>340,'upgradeTurns'=>2],
         'deep_space_array_mk1' => ['id'=>'deep_space_array_mk1','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk I','version'=>1,'requires'=>[],'description'=>'Extends colony sensor coverage to two hops.','stats'=>['sensorRange'=>2,'industryCost'=>350],'upgradeFrom'=>null,'upgradeCost'=>null],
-        'deep_space_array_mk2' => ['id'=>'deep_space_array_mk2','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk II','version'=>2,'requires'=>['sensors_1'],'description'=>'Second-generation colony sensor installation.','stats'=>['sensorRange'=>3,'industryCost'=>470],'upgradeFrom'=>'deep_space_array_mk1','upgradeCost'=>230],
-        'deep_space_array_mk3' => ['id'=>'deep_space_array_mk3','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk III','version'=>3,'requires'=>['sensors_2'],'description'=>'Long-range colony intelligence array.','stats'=>['sensorRange'=>4,'industryCost'=>620],'upgradeFrom'=>'deep_space_array_mk2','upgradeCost'=>300],
+        'deep_space_array_mk2' => ['id'=>'deep_space_array_mk2','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk II','version'=>2,'requires'=>['sensors_1'],'description'=>'Second-generation colony sensor installation.','stats'=>['sensorRange'=>3,'industryCost'=>470],'upgradeFrom'=>'deep_space_array_mk1','upgradeCost'=>230,'upgradeTurns'=>2],
+        'deep_space_array_mk3' => ['id'=>'deep_space_array_mk3','category'=>'installation','family'=>'deep_space_array','name'=>'Deep Space Array Mk III','version'=>3,'requires'=>['sensors_2'],'description'=>'Long-range colony intelligence array.','stats'=>['sensorRange'=>4,'industryCost'=>620],'upgradeFrom'=>'deep_space_array_mk2','upgradeCost'=>300,'upgradeTurns'=>2],
     ];
 
     /** @return array<string, mixed>|null */
@@ -339,7 +339,7 @@ final class TechnologyModelCatalog
         $installations = is_array($system['installations'] ?? null) ? array_values($system['installations']) : [];
         foreach ($installations as $existing) {
             if (is_array($existing) && ($existing['family'] ?? null) === $family) {
-                return $system; // Upgrade/refit is intentionally reserved for 0.7.2.
+                return $system;
             }
         }
         $installations[] = [
@@ -358,6 +358,185 @@ final class TechnologyModelCatalog
         } elseif ($family === 'deep_space_array') {
             $system['sensorRange'] = max((int) ($system['sensorRange'] ?? 1), max(1, (int) ($stats['sensorRange'] ?? 1)));
         }
+        return $system;
+    }
+
+    /** @param array<string, mixed> $state @return array<string, mixed>|null */
+    public static function installationUpgradeDefinition(array $state, int $playerId, string $sourceModelId, string $targetModelId): ?array
+    {
+        $target = self::model($targetModelId);
+        if ($target === null || ($target['category'] ?? null) !== 'installation') {
+            return null;
+        }
+        if (($target['upgradeFrom'] ?? null) !== $sourceModelId) {
+            return null;
+        }
+
+        foreach (self::publicForPlayer($state, $playerId)['installations'] as $candidate) {
+            if (($candidate['id'] ?? null) === $targetModelId && ($candidate['unlocked'] ?? false) === true) {
+                return $target;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $system @return array<string, mixed>|null */
+    public static function pendingUpgradeForFamily(array $system, string $family): ?array
+    {
+        foreach (is_array($system['installationUpgrades'] ?? null) ? $system['installationUpgrades'] : [] as $upgrade) {
+            if (is_array($upgrade) && ($upgrade['family'] ?? null) === $family) {
+                return $upgrade;
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $system @param array<string, mixed> $targetModel @return array<string, mixed> */
+    public static function startInstallationUpgrade(array $system, array $targetModel, int $turnNumber): array
+    {
+        $family = (string) ($targetModel['family'] ?? '');
+        $sourceModelId = is_string($targetModel['upgradeFrom'] ?? null) ? (string) $targetModel['upgradeFrom'] : '';
+        $source = self::installationForFamily($system, $family);
+        if ($family === '' || $sourceModelId === '' || $source === null || ($source['modelId'] ?? null) !== $sourceModelId) {
+            return $system;
+        }
+        if (self::pendingUpgradeForFamily($system, $family) !== null) {
+            return $system;
+        }
+
+        $sourceModel = self::model($sourceModelId);
+        $upgradeTurns = max(1, (int) ($targetModel['upgradeTurns'] ?? 1));
+        $upgrades = is_array($system['installationUpgrades'] ?? null) ? array_values($system['installationUpgrades']) : [];
+        $upgrades[] = [
+            'family' => $family,
+            'fromModelId' => $sourceModelId,
+            'fromName' => (string) ($sourceModel['name'] ?? $source['name'] ?? $sourceModelId),
+            'fromVersion' => (int) ($sourceModel['version'] ?? $source['version'] ?? 1),
+            'toModelId' => (string) $targetModel['id'],
+            'toName' => (string) $targetModel['name'],
+            'toVersion' => (int) $targetModel['version'],
+            'industryCost' => max(1, (int) ($targetModel['upgradeCost'] ?? 0)),
+            'turnsTotal' => $upgradeTurns,
+            // The turn in which the order is processed counts as the first work turn.
+            'turnsRemaining' => max(1, $upgradeTurns - 1),
+            'startedTurn' => $turnNumber,
+        ];
+        $system['installationUpgrades'] = $upgrades;
+        return $system;
+    }
+
+    /**
+     * @param array<string, mixed> $system
+     * @return array{system:array<string,mixed>,completed:list<array<string,mixed>>,warnings:list<string>}
+     */
+    public static function advanceInstallationUpgrades(array $system, int $turnNumber): array
+    {
+        $pending = is_array($system['installationUpgrades'] ?? null) ? array_values($system['installationUpgrades']) : [];
+        if ($pending === []) {
+            return ['system' => $system, 'completed' => [], 'warnings' => []];
+        }
+
+        $remainingUpgrades = [];
+        $completed = [];
+        $warnings = [];
+        foreach ($pending as $upgrade) {
+            if (!is_array($upgrade)) {
+                continue;
+            }
+            $family = is_string($upgrade['family'] ?? null) ? $upgrade['family'] : '';
+            $fromModelId = is_string($upgrade['fromModelId'] ?? null) ? $upgrade['fromModelId'] : '';
+            $toModelId = is_string($upgrade['toModelId'] ?? null) ? $upgrade['toModelId'] : '';
+            $turnsRemaining = max(1, (int) ($upgrade['turnsRemaining'] ?? 1));
+
+            if ($turnsRemaining > 1) {
+                $upgrade['turnsRemaining'] = $turnsRemaining - 1;
+                $remainingUpgrades[] = $upgrade;
+                continue;
+            }
+
+            $target = self::model($toModelId);
+            $installed = self::installationForFamily($system, $family);
+            if ($target === null || ($target['category'] ?? null) !== 'installation' || ($target['upgradeFrom'] ?? null) !== $fromModelId) {
+                $warnings[] = sprintf('Installation upgrade %s -> %s is no longer valid.', $fromModelId, $toModelId);
+                continue;
+            }
+            if ($installed === null || ($installed['modelId'] ?? null) !== $fromModelId) {
+                $warnings[] = sprintf('Installation upgrade %s -> %s could not complete because the source model changed.', $fromModelId, $toModelId);
+                continue;
+            }
+
+            $system = self::upgradeInstallation($system, $target, $turnNumber);
+            $completed[] = [
+                'systemId' => (string) ($system['id'] ?? ''),
+                'family' => $family,
+                'fromModelId' => $fromModelId,
+                'fromName' => (string) ($upgrade['fromName'] ?? $fromModelId),
+                'fromVersion' => (int) ($upgrade['fromVersion'] ?? 1),
+                'toModelId' => $toModelId,
+                'toName' => (string) $target['name'],
+                'toVersion' => (int) $target['version'],
+                'industryCost' => max(1, (int) ($upgrade['industryCost'] ?? $target['upgradeCost'] ?? 0)),
+                'completedTurn' => $turnNumber,
+            ];
+        }
+
+        $system['installationUpgrades'] = array_values($remainingUpgrades);
+        return ['system' => $system, 'completed' => $completed, 'warnings' => $warnings];
+    }
+
+    /** @param array<string, mixed> $system @param array<string, mixed> $targetModel @return array<string, mixed> */
+    public static function upgradeInstallation(array $system, array $targetModel, int $turnNumber): array
+    {
+        $family = (string) ($targetModel['family'] ?? '');
+        $sourceModelId = is_string($targetModel['upgradeFrom'] ?? null) ? (string) $targetModel['upgradeFrom'] : '';
+        $sourceModel = self::model($sourceModelId);
+        if ($family === '' || $sourceModel === null) {
+            return $system;
+        }
+
+        $installations = is_array($system['installations'] ?? null) ? array_values($system['installations']) : [];
+        $replaced = false;
+        foreach ($installations as $index => $installation) {
+            if (!is_array($installation) || ($installation['family'] ?? null) !== $family || ($installation['modelId'] ?? null) !== $sourceModelId) {
+                continue;
+            }
+            $installations[$index] = [
+                'family' => $family,
+                'modelId' => (string) $targetModel['id'],
+                'name' => (string) $targetModel['name'],
+                'version' => (int) $targetModel['version'],
+                'installedTurn' => $turnNumber,
+            ];
+            $replaced = true;
+            break;
+        }
+        if (!$replaced) {
+            return $system;
+        }
+        $system['installations'] = $installations;
+
+        $fromStats = is_array($sourceModel['stats'] ?? null) ? $sourceModel['stats'] : [];
+        $toStats = is_array($targetModel['stats'] ?? null) ? $targetModel['stats'] : [];
+        if ($family === 'defense_grid') {
+            $delta = (int) ($toStats['defenseAdd'] ?? 0) - (int) ($fromStats['defenseAdd'] ?? 0);
+            $system['defenses'] = max(0, (int) ($system['defenses'] ?? 0) + $delta);
+        } elseif ($family === 'orbital_factory') {
+            $developmentDelta = (int) ($toStats['developmentAdd'] ?? 0) - (int) ($fromStats['developmentAdd'] ?? 0);
+            $system['development'] = min(100, max(0, (int) ($system['development'] ?? 0) + $developmentDelta));
+            $incomeDelta = (int) ($toStats['industryIncome'] ?? 0) - (int) ($fromStats['industryIncome'] ?? 0);
+            $resources = is_array($system['resources'] ?? null) ? array_values($system['resources']) : [];
+            foreach ($resources as $resourceIndex => $resource) {
+                if (is_array($resource) && ($resource['id'] ?? null) === 'industry') {
+                    $resources[$resourceIndex]['income'] = max(0, (int) ($resource['income'] ?? 0) + $incomeDelta);
+                    break;
+                }
+            }
+            $system['resources'] = $resources;
+        } elseif ($family === 'deep_space_array') {
+            $system['sensorRange'] = max((int) ($system['sensorRange'] ?? 1), max(1, (int) ($toStats['sensorRange'] ?? 1)));
+        }
+
         return $system;
     }
 

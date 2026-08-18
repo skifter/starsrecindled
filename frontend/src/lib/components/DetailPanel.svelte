@@ -39,6 +39,10 @@
     return (system.installations ?? []).some((installation) => installation.family === family);
   }
 
+  function pendingUpgrade(family: string) {
+    return (system.installationUpgrades ?? []).find((upgrade) => upgrade.family === family) ?? null;
+  }
+
   function modelIcon(model: TechnologyModel): string {
     if (model.family === 'defense_grid') return 'shield';
     if (model.family === 'deep_space_array') return 'target';
@@ -105,8 +109,8 @@
         {#each productionOrders as item}
           <div class="queue-item draft">
             <Icon name={item.productionKind === 'ship' || item.modelId?.startsWith('scout-') ? 'fleet' : item.modelId?.startsWith('defense_grid') ? 'shield' : item.modelId?.startsWith('deep_space_array') ? 'target' : 'industry'} size={17}/>
-            <span><strong>{item.item}</strong><small>Completes when the turn is processed</small></span><em>×{item.quantity}</em>
-            <button disabled={!canBuild} title={`Remove one ${item.item}`} onclick={() => onRemoveBuild(item.item)}>−1</button>
+            <span><strong>{item.item}</strong><small>{item.productionKind === 'upgrade' ? `Starts this turn · ${item.upgradeTurns ?? 2} turns total` : 'Completes when the turn is processed'}</small></span><em>{item.productionKind === 'upgrade' ? 'UP' : `×${item.quantity}`}</em>
+            <button disabled={!canBuild} title={`Remove ${item.item}`} onclick={() => onRemoveBuild(item.item)}>−</button>
           </div>
         {/each}
       </div>
@@ -115,7 +119,8 @@
     {/if}
     <div class="installed-models">
       {#each (system.installations ?? []) as installation}
-        <span><strong>{installation.name}</strong><small>v{installation.version}</small></span>
+        {@const upgrade = pendingUpgrade(installation.family)}
+        <span><strong>{installation.name}</strong><small>v{installation.version} · active{upgrade ? ` · upgrading to ${upgrade.toName} (${upgrade.turnsRemaining} turn${upgrade.turnsRemaining === 1 ? '' : 's'})` : ''}</small></span>
       {/each}
       {#if (system.installations ?? []).length === 0}<span><strong>Base colony</strong><small>No registered installations</small></span>{/if}
     </div>
@@ -124,8 +129,8 @@
         <button disabled={!canBuild} onclick={() => onBuild(currentScout.name, currentScout.id)}><Icon name="fleet" size={15}/><span><strong>{currentScout.name}</strong><small>{currentScout.industryCost} industry · {currentScout.batchSize} ships · {currentScout.stats.movementRange} hop</small></span></button>
       {/if}
       {#each buildModels as model}
-        <button disabled={!canBuild || installedFamily(model.family)} onclick={() => onBuild(model.name, model.id)} title={installedFamily(model.family) ? 'Existing model remains installed; explicit upgrade arrives in 0.7.2' : `${model.stats.industryCost ?? 0} industry`}>
-          <Icon name={modelIcon(model)} size={15}/><span><strong>{model.name}</strong><small>{installedFamily(model.family) ? 'Upgrade path registered · 0.7.2' : `${model.stats.industryCost ?? 0} industry · new installation`}</small></span>
+        <button disabled={!canBuild || installedFamily(model.family)} onclick={() => onBuild(model.name, model.id)} title={installedFamily(model.family) ? 'Existing model remains installed; manage its upgrade from Planets' : `${model.stats.industryCost ?? 0} industry`}>
+          <Icon name={modelIcon(model)} size={15}/><span><strong>{model.name}</strong><small>{installedFamily(model.family) ? 'Upgrade available from Planets' : `${model.stats.industryCost ?? 0} industry · new installation`}</small></span>
         </button>
       {/each}
     </div>

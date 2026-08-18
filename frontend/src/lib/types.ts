@@ -131,6 +131,7 @@ export interface StarSystem {
   isCapital?: boolean;
   sensorRange?: number;
   installations?: PlanetInstallation[];
+  installationUpgrades?: PlanetInstallationUpgrade[];
   visibilityState?: VisibilityState;
   lastSeenTurn?: number;
 }
@@ -154,7 +155,10 @@ export interface ProductionOrder {
   modelId?: string;
   modelName?: string;
   modelVersion?: number;
-  productionKind?: 'ship' | 'installation' | 'legacy';
+  productionKind?: 'ship' | 'installation' | 'upgrade' | 'legacy';
+  sourceModelId?: string;
+  sourceModelVersion?: number;
+  upgradeTurns?: number;
 }
 
 export interface ResearchOrder {
@@ -192,6 +196,7 @@ export interface TechnologyModel {
   stats: Record<string, number>;
   upgradeFrom?: string | null;
   upgradeCost?: number | null;
+  upgradeTurns?: number | null;
 }
 
 export interface ShipDesignComponentRef {
@@ -228,6 +233,20 @@ export interface PlanetInstallation {
   name: string;
   version: number;
   installedTurn?: number;
+}
+
+export interface PlanetInstallationUpgrade {
+  family: string;
+  fromModelId: string;
+  fromName: string;
+  fromVersion: number;
+  toModelId: string;
+  toName: string;
+  toVersion: number;
+  industryCost: number;
+  turnsTotal: number;
+  turnsRemaining: number;
+  startedTurn: number;
 }
 
 export interface ModelCatalog {
@@ -309,6 +328,7 @@ export interface ServerSystemState {
   isCapital?: boolean;
   sensorRange?: number;
   installations?: PlanetInstallation[];
+  installationUpgrades?: PlanetInstallationUpgrade[];
   visibilityState?: VisibilityState;
   lastSeenTurn?: number;
 }
@@ -383,7 +403,21 @@ export interface TurnReportProduction {
   industryCost: number;
   modelId?: string;
   modelVersion?: number;
-  productionKind?: 'ship' | 'installation' | 'legacy';
+  productionKind?: 'ship' | 'installation' | 'upgrade' | 'legacy';
+}
+
+
+export interface TurnReportInstallationUpgradeCompleted {
+  systemId: string;
+  family: string;
+  fromModelId: string;
+  fromName: string;
+  fromVersion: number;
+  toModelId: string;
+  toName: string;
+  toVersion: number;
+  industryCost: number;
+  completedTurn: number;
 }
 
 export interface TurnReportResearchCompleted {
@@ -421,6 +455,7 @@ export interface TurnReportData {
   movements?: TurnReportMovement[];
   colonizations?: TurnReportColonization[];
   productions?: TurnReportProduction[];
+  installation_upgrades_completed?: TurnReportInstallationUpgradeCompleted[];
   research_completed?: TurnReportResearchCompleted[];
   research_progress?: TurnReportResearchProgress | null;
   research_income?: number;

@@ -74,6 +74,7 @@ export function mapLiveUniverse(
       isCapital: system.isCapital === true,
       sensorRange: Math.max(0, Number(system.sensorRange ?? (system.ownerPlayerId === null ? 0 : 1))),
       installations: Array.isArray(system.installations) ? system.installations : [],
+      installationUpgrades: Array.isArray(system.installationUpgrades) ? system.installationUpgrades : [],
       visibilityState: system.visibilityState ?? 'visible',
       lastSeenTurn: system.lastSeenTurn,
       isYours: system.ownerPlayerId === currentPlayerId

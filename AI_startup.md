@@ -191,31 +191,33 @@ Do not rush Combat ahead of the equipment/refit/fuel foundation.
 
 ## Immediate next development: 0.7.2
 
-The first 0.7.2 implementation should start with planetary installation upgrades because it is the cleanest way to establish the general upgrade mechanism.
+The first 0.7.2 slice — explicit planetary installation upgrades — is now implemented as Unreleased development work. The public application version remains `0.7.1` until the complete 0.7.2 release is ready.
 
-Target behaviour:
+### Implemented in the current Unreleased slice
 
-1. Player owns an installed version, e.g. `Deep Space Array I`.
-2. Player has researched/unlocked the required newer version.
-3. Planet UI offers an explicit upgrade action.
-4. Upgrade is placed in the planet production queue.
-5. Queue stores exact source/target versions.
-6. Upgrade has industry cost and turn duration.
-7. Old installation remains active until upgrade completes.
-8. Completion replaces the installed version.
-9. Turn Report records the completed upgrade.
-10. The mechanism should be reusable later for ship refit.
+- sequential `Mk I -> Mk II -> Mk III` installation upgrades; generations cannot be skipped
+- upgrade target must be unlocked by completed research
+- production orders persist the exact source and target model/version
+- upgrade industry cost is paid when the order starts
+- current installation stays active during the upgrade
+- Mk II/Mk III installation upgrades currently take two turn-processing cycles
+- pending work is stored in each system's existing universe-state JSON as `installationUpgrades`; no database migration is required
+- completion replaces the installed model and applies only the stat delta between old and new versions
+- Orbital Factory income improvements begin on the turn after completion because current-turn income is collected before upgrades advance
+- Planet UI shows available, queued and in-progress upgrades
+- Turn Report records completed installation upgrades
+- `tests/installation-upgrade-smoke.php` verifies sequencing and defense/factory/sensor stat deltas
 
-After installation upgrades:
+### Next 0.7.2 slices
 
-- design cloning/editing
-- ship refit between generations
+- design cloning/editing so researched components can be assembled into intentional new ship generations
+- ship refit between compatible generations
 - refit prerequisites / shipyard requirements
 - refit industry cost and time
-- fleet fuel capacity
-- current fleet fuel
-- fuel consumption per hop
-- applied research such as fuel optimization
+- fleet current fuel and per-hop consumption
+- applied research such as fuel optimization affecting existing fleets
+
+The installation-upgrade state machine should be reused where practical for ship refit instead of inventing a separate unrelated timing model.
 
 ## Changelog policy
 

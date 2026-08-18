@@ -66,16 +66,37 @@ final class DemoTurnEngine implements TurnEngineInterface
             $systems[$index]['resources'] = array_values($resources);
         }
 
+        // Existing installation upgrades advance after this turn's income has been
+        // collected. A factory that completes now therefore improves income starting
+        // next turn; the old model remained active for the whole work period.
+        $upgradeCompletionsByPlayer = [];
+        $upgradeWarningsByPlayer = [];
+        foreach ($systems as $index => $system) {
+            if (!is_array($system) || !isset($system['ownerPlayerId']) || !is_numeric($system['ownerPlayerId'])) {
+                continue;
+            }
+            $ownerId = (int) $system['ownerPlayerId'];
+            $advanced = TechnologyModelCatalog::advanceInstallationUpgrades($system, $turn->getNumber() + 1);
+            $systems[$index] = $advanced['system'];
+            if ($advanced['completed'] !== []) {
+                $upgradeCompletionsByPlayer[$ownerId] = array_merge($upgradeCompletionsByPlayer[$ownerId] ?? [], $advanced['completed']);
+            }
+            foreach ($advanced['warnings'] as $warning) {
+                $upgradeWarningsByPlayer[$ownerId][] = sprintf('%s: %s', (string) ($system['name'] ?? $system['id'] ?? 'Colony'), $warning);
+            }
+        }
+
         $reports = [];
         foreach ($submittedOrders as $playerId => $orders) {
+            $playerIdInt = (int) $playerId;
             $movements = [];
             $colonizations = [];
             $productions = [];
+            $installationUpgradesCompleted = $upgradeCompletionsByPlayer[$playerIdInt] ?? [];
             $researchCompleted = [];
             $researchProgress = null;
-            $warnings = [];
+            $warnings = $upgradeWarningsByPlayer[$playerIdInt] ?? [];
             $movedFleetIds = [];
-            $playerIdInt = (int) $playerId;
             $playerResearch = ResearchCatalog::playerState(['research' => $researchByPlayer], $playerIdInt);
             $researchIncome = ResearchCatalog::estimateIncome($state, $playerIdInt);
             $fleetOrders = is_array($orders['fleets'] ?? null) ? $orders['fleets'] : [];
@@ -217,9 +238,11 @@ final class DemoTurnEngine implements TurnEngineInterface
 
                 $systemId = is_string($productionOrder['systemId'] ?? null) ? $productionOrder['systemId'] : '';
                 $item = is_string($productionOrder['item'] ?? null) ? trim($productionOrder['item']) : '';
-                $quantity = max(1, min(10, (int) ($productionOrder['quantity'] ?? 1)));
+                $productionKind = is_string($productionOrder['productionKind'] ?? null) ? trim($productionOrder['productionKind']) : '';
+                $quantity = $productionKind === 'upgrade' ? 1 : max(1, min(10, (int) ($productionOrder['quantity'] ?? 1)));
                 $modelId = is_string($productionOrder['modelId'] ?? null) ? trim($productionOrder['modelId']) : '';
-                $definition = $this->productionDefinition($item, $state, $playerIdInt, $modelId);
+                $sourceModelId = is_string($productionOrder['sourceModelId'] ?? null) ? trim($productionOrder['sourceModelId']) : '';
+                $definition = $this->productionDefinition($item, $state, $playerIdInt, $modelId, $productionKind, $sourceModelId);
 
                 if ($systemId === '' || $item === '' || $definition === null) {
                     $warnings[] = sprintf('Ukendt eller ugyldig produktionsordre: %s.', $item !== '' ? $item : 'tom ordre');
@@ -296,7 +319,7 @@ final class DemoTurnEngine implements TurnEngineInterface
                         $family = (string) ($model['family'] ?? '');
                         if (TechnologyModelCatalog::installationForFamily($systems[$systemIndex], $family) !== null) {
                             $systems[$systemIndex]['resources'][$industryIndex]['value'] += $definition['cost'];
-                            $warnings[] = sprintf('%s har allerede en %s-installation. Refit/upgrade aktiveres i næste version.', (string) ($systems[$systemIndex]['name'] ?? $systemId), $family);
+                            $warnings[] = sprintf('%s har allerede en %s-installation. Brug en eksplicit upgrade-ordre.', (string) ($systems[$systemIndex]['name'] ?? $systemId), $family);
                             break;
                         }
                         $systems[$systemIndex] = TechnologyModelCatalog::install($systems[$systemIndex], $model, $turn->getNumber() + 1);
@@ -307,17 +330,52 @@ final class DemoTurnEngine implements TurnEngineInterface
                                     + max(0, (int) ($model['stats']['industryIncome'] ?? 0));
                             }
                         }
+                    } elseif (($definition['kind'] ?? null) === 'upgrade') {
+                        $model = is_array($definition['model'] ?? null) ? $definition['model'] : null;
+                        $family = is_array($model) ? (string) ($model['family'] ?? '') : '';
+                        $sourceModelId = (string) ($definition['sourceModelId'] ?? '');
+                        $installed = TechnologyModelCatalog::installationForFamily($systems[$systemIndex], $family);
+                        if ($model === null || $installed === null || ($installed['modelId'] ?? null) !== $sourceModelId) {
+                            $systems[$systemIndex]['resources'][$industryIndex]['value'] += $definition['cost'];
+                            $warnings[] = sprintf('%s kan ikke opgradere %s, fordi den forventede kildeinstallation ikke længere er installeret.', (string) ($systems[$systemIndex]['name'] ?? $systemId), $item);
+                            break;
+                        }
+                        if (TechnologyModelCatalog::pendingUpgradeForFamily($systems[$systemIndex], $family) !== null) {
+                            $systems[$systemIndex]['resources'][$industryIndex]['value'] += $definition['cost'];
+                            $warnings[] = sprintf('%s har allerede en aktiv %s-opgradering.', (string) ($systems[$systemIndex]['name'] ?? $systemId), $family);
+                            break;
+                        }
+
+                        $turns = max(1, (int) ($definition['turns'] ?? 1));
+                        if ($turns <= 1) {
+                            $systems[$systemIndex] = TechnologyModelCatalog::upgradeInstallation($systems[$systemIndex], $model, $turn->getNumber() + 1);
+                            $installationUpgradesCompleted[] = [
+                                'systemId' => $systemId,
+                                'family' => $family,
+                                'fromModelId' => $sourceModelId,
+                                'fromName' => (string) ($definition['sourceName'] ?? $sourceModelId),
+                                'fromVersion' => (int) ($definition['sourceVersion'] ?? 1),
+                                'toModelId' => (string) $model['id'],
+                                'toName' => (string) $model['name'],
+                                'toVersion' => (int) $model['version'],
+                                'industryCost' => (int) $definition['cost'],
+                                'completedTurn' => $turn->getNumber() + 1,
+                            ];
+                        } else {
+                            $systems[$systemIndex] = TechnologyModelCatalog::startInstallationUpgrade($systems[$systemIndex], $model, $turn->getNumber() + 1);
+                        }
                     }
 
-
-                    $productions[] = [
-                        'systemId' => $systemId,
-                        'item' => (string) ($definition['name'] ?? $item),
-                        'modelId' => (string) ($definition['modelId'] ?? ''),
-                        'modelVersion' => (int) ($definition['version'] ?? 1),
-                        'productionKind' => (string) ($definition['kind'] ?? 'legacy'),
-                        'industryCost' => $definition['cost'],
-                    ];
+                    if (($definition['kind'] ?? null) !== 'upgrade') {
+                        $productions[] = [
+                            'systemId' => $systemId,
+                            'item' => (string) ($definition['name'] ?? $item),
+                            'modelId' => (string) ($definition['modelId'] ?? ''),
+                            'modelVersion' => (int) ($definition['version'] ?? 1),
+                            'productionKind' => (string) ($definition['kind'] ?? 'legacy'),
+                            'industryCost' => $definition['cost'],
+                        ];
+                    }
                 }
             }
 
@@ -402,17 +460,21 @@ final class DemoTurnEngine implements TurnEngineInterface
             if (count($productions) > 0) {
                 $parts[] = sprintf('%d produktion(er)', count($productions));
             }
+            if (count($installationUpgradesCompleted) > 0) {
+                $parts[] = sprintf('%d installationsopgradering(er)', count($installationUpgradesCompleted));
+            }
             if (count($researchCompleted) > 0) {
                 $parts[] = sprintf('%d forskningsteknologi(er)', count($researchCompleted));
             }
 
             $reports[$playerId] = [
                 'message' => $parts === []
-                    ? 'Ingen flådebevægelser, koloniseringer, produktioner eller forskningsteknologier blev afsluttet i denne runde.'
+                    ? 'Ingen flådebevægelser, koloniseringer, produktioner, installationsopgraderinger eller forskningsteknologier blev afsluttet i denne runde.'
                     : ucfirst(implode(', ', $parts)).' blev udført.',
                 'movements' => $movements,
                 'colonizations' => $colonizations,
                 'productions' => $productions,
+                'installation_upgrades_completed' => $installationUpgradesCompleted,
                 'research_completed' => $researchCompleted,
                 'research_progress' => $researchProgress,
                 'research_income' => $researchIncome,
@@ -468,7 +530,7 @@ final class DemoTurnEngine implements TurnEngineInterface
     }
 
     /** @return array<string, mixed>|null */
-    private function productionDefinition(string $item, array $state, int $playerId, string $modelId = ''): ?array
+    private function productionDefinition(string $item, array $state, int $playerId, string $modelId = '', string $productionKind = '', string $sourceModelId = ''): ?array
     {
         $legacy = [
             'Scout Wing' => 'current_scout',
@@ -505,6 +567,18 @@ final class DemoTurnEngine implements TurnEngineInterface
         }
         if (!$allowed) {
             return null;
+        }
+        if ($productionKind === 'upgrade') {
+            $upgrade = TechnologyModelCatalog::installationUpgradeDefinition($state, $playerId, $sourceModelId, $requested);
+            if ($upgrade === null) {
+                return null;
+            }
+            $source = TechnologyModelCatalog::model($sourceModelId);
+            return [
+                'kind' => 'upgrade', 'modelId' => (string) $upgrade['id'], 'name' => sprintf('Upgrade to %s', (string) $upgrade['name']),
+                'version' => (int) $upgrade['version'], 'cost' => max(1, (int) ($upgrade['upgradeCost'] ?? 0)), 'turns' => max(1, (int) ($upgrade['upgradeTurns'] ?? 1)),
+                'sourceModelId' => $sourceModelId, 'sourceName' => (string) ($source['name'] ?? $sourceModelId), 'sourceVersion' => (int) ($source['version'] ?? 1), 'model' => $upgrade,
+            ];
         }
         return [
             'kind' => 'installation', 'modelId' => (string) $model['id'], 'name' => (string) $model['name'],

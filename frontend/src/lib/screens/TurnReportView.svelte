@@ -13,11 +13,12 @@
   $: movements = data?.movements ?? [];
   $: colonizations = data?.colonizations ?? [];
   $: productions = data?.productions ?? [];
+  $: installationUpgradesCompleted = data?.installation_upgrades_completed ?? [];
   $: researchCompleted = data?.research_completed ?? [];
   $: researchProgress = data?.research_progress ?? null;
   $: sightings = data?.sightings ?? [];
   $: warnings = data?.warnings ?? [];
-  $: eventCount = movements.length + colonizations.length + productions.length + researchCompleted.length + sightings.length;
+  $: eventCount = movements.length + colonizations.length + productions.length + installationUpgradesCompleted.length + researchCompleted.length + sightings.length;
 
   function system(id: string): StarSystem | null {
     return systems.find((entry) => entry.id === id) ?? null;
@@ -80,7 +81,7 @@
     <div class="empty panel-cut"><Icon name="report" size={42}/><h2>No previous turn report</h2><p>The first report appears after a turn has been processed.</p></div>
   {:else}
     {#if eventCount === 0 && warnings.length === 0 && !researchProgress}
-      <section class="quiet-turn panel-cut"><Icon name="report" size={22}/><div><strong>Quiet turn</strong><p>No movement, production, colonization, research completion or sensor-contact changes were recorded for your empire.</p></div></section>
+      <section class="quiet-turn panel-cut"><Icon name="report" size={22}/><div><strong>Quiet turn</strong><p>No movement, production, installation upgrade, colonization, research completion or sensor-contact changes were recorded for your empire.</p></div></section>
     {/if}
 
     {#if warnings.length > 0}
@@ -175,6 +176,21 @@
     </section>
 
     <section class="report-section panel-cut">
+      <div class="section-title"><span><Icon name="build" size={18}/><strong>Installation upgrades completed</strong></span><em>{installationUpgradesCompleted.length}</em></div>
+      {#if installationUpgradesCompleted.length}
+        <div class="events">
+          {#each installationUpgradesCompleted as upgrade}
+            <article class="event upgrade-event">
+              <Icon name={upgrade.family === 'defense_grid' ? 'shield' : upgrade.family === 'deep_space_array' ? 'target' : 'industry'} size={18}/>
+              <div><strong>{upgrade.fromName} → {upgrade.toName}</strong><p>{systemName(upgrade.systemId)} · {upgrade.industryCost.toLocaleString('en-US')} industry · completed turn {upgrade.completedTurn}</p></div>
+              <button onclick={() => open(upgrade.systemId)}>Open colony</button>
+            </article>
+          {/each}
+        </div>
+      {:else}<p class="none">No installation upgrades completed.</p>{/if}
+    </section>
+
+    <section class="report-section panel-cut">
       <div class="section-title"><span><Icon name="build" size={18}/><strong>Production completed</strong></span><em>{productions.length}</em></div>
       {#if productions.length}
         <div class="events">
@@ -197,6 +213,6 @@
 
 <style>
   .report-view{height:100%;overflow:auto;box-sizing:border-box;padding:1.35rem;background:radial-gradient(circle at 45% 12%,rgba(18,93,129,.13),transparent 44%),#030912;color:#8ea5b5}.view-header{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1rem}.eyebrow{margin:0 0 .3rem;color:#43c5ff;text-transform:uppercase;letter-spacing:.14em;font-size:.65rem}h1{margin:0;color:#edf9ff;font-size:1.65rem;font-weight:500;letter-spacing:.08em}.intro{max-width:760px;margin:.5rem 0 0;color:#7f98aa;font-size:.76rem;line-height:1.5}.summary{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:flex-end}.summary span{text-align:right}.summary strong,.summary small{display:block}.summary strong{color:#e4f4fb;font-size:.95rem}.summary small{margin-top:.12rem;color:#648296;text-transform:uppercase;font-size:.54rem;letter-spacing:.08em}.summary .warning strong{color:#efb55a}
-  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event strong{color:#efbd78}.warning-event p{color:#d1a06c}.warning-event .attention-action{border-color:rgba(229,155,71,.42);background:rgba(66,40,12,.62);color:#efbd78}.success-event{color:#71cf96}.research-event{color:#75d9ff;box-shadow:inset 2px 0 rgba(86,205,255,.55)}.research-progress-event{color:#6cb7d7}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
+  .panel-cut{border:1px solid rgba(58,154,207,.22);background:linear-gradient(180deg,rgba(5,21,35,.96),rgba(3,13,23,.96))}.attention{margin-bottom:.75rem;border-color:rgba(229,155,71,.42);box-shadow:inset 3px 0 #df9b48}.attention>header{display:flex;gap:.65rem;align-items:center;padding:.75rem .85rem;color:#efb55a;border-bottom:1px solid rgba(229,155,71,.18)}.attention header span,.attention header strong,.attention header small{display:block}.attention header strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}.attention header small{margin-top:.15rem;color:#90785e;font-size:.58rem;font-weight:400;text-transform:none;letter-spacing:0}.report-section{margin-bottom:.7rem}.section-title{min-height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 .8rem;border-bottom:1px solid rgba(58,154,207,.16)}.section-title>span{display:flex;align-items:center;gap:.5rem;color:#55caff}.section-title strong{color:#cfe3ed;font-size:.69rem;font-weight:500;text-transform:uppercase;letter-spacing:.07em}.section-title em{min-width:24px;padding:.12rem .35rem;border:1px solid rgba(70,181,231,.24);color:#6fcff5;font-size:.6rem;font-style:normal;text-align:center}.events{display:grid}.event{min-height:58px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.55rem;align-items:center;padding:.55rem .75rem;border-bottom:1px solid rgba(55,126,165,.12);color:#58caff}.event:last-child{border-bottom:0}.event div,.event strong,.event p{display:block}.event strong{color:#d6e7ef;font-size:.69rem;font-weight:500}.event p{margin:.16rem 0 0;color:#708a9b;font-size:.6rem;line-height:1.35}.event button{min-height:30px;padding:0 .55rem;border:1px solid rgba(64,169,221,.28);background:rgba(8,39,58,.7);color:#64caf4;font:inherit;font-size:.57rem;cursor:pointer}.event button:hover{border-color:#4dcaff;color:#e5f8ff}.warning-event{color:#e7a857}.warning-event strong{color:#efbd78}.warning-event p{color:#d1a06c}.warning-event .attention-action{border-color:rgba(229,155,71,.42);background:rgba(66,40,12,.62);color:#efbd78}.success-event{color:#71cf96}.upgrade-event{color:#e4c35e;box-shadow:inset 2px 0 rgba(228,195,94,.48)}.upgrade-event strong{color:#e7dcad}.research-event{color:#75d9ff;box-shadow:inset 2px 0 rgba(86,205,255,.55)}.research-progress-event{color:#6cb7d7}.contact-lost{opacity:.7}.contact-lost strong{color:#9baab3}.quiet-turn{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;padding:.8rem;color:#6dcdf4}.quiet-turn strong{color:#c9dce6;font-size:.72rem}.quiet-turn p{margin:.14rem 0 0;color:#718a9b;font-size:.61rem}.none{margin:0;padding:.85rem;color:#687f90;font-size:.65rem}.intel-note{display:flex;gap:.6rem;align-items:flex-start;padding:.7rem .8rem;color:#63c9f3}.intel-note p{margin:0;color:#718b9c;font-size:.62rem;line-height:1.5}.intel-note strong{color:#a9d8ec;font-weight:500}.empty{min-height:280px;display:grid;place-content:center;justify-items:center;gap:.45rem;color:#58caff;text-align:center}.empty h2{margin:.35rem 0 0;color:#dcebf3;font-size:.95rem;font-weight:500}.empty p{margin:0;color:#708a9b;font-size:.68rem}
   @media(max-width:800px){.view-header{display:grid}.summary{justify-content:flex-start}.summary span{text-align:left}.event{grid-template-columns:26px minmax(0,1fr)}.event button{grid-column:2;justify-self:start}.report-view{padding:.8rem}}
 </style>

@@ -228,7 +228,15 @@ final class TurnApiController extends AbstractController
             }
         }
 
+        $systemsById = [];
+        foreach (is_array($state['universe']['systems'] ?? null) ? $state['universe']['systems'] : [] as $system) {
+            if (is_array($system) && is_string($system['id'] ?? null)) {
+                $systemsById[$system['id']] = $system;
+            }
+        }
+
         $normalized = [];
+        $upgradeFamilies = [];
         foreach (array_values($orders['production']) as $entry) {
             if (!is_array($entry)) {
                 throw new \InvalidArgumentException('Each production order must be a JSON object.');
@@ -236,12 +244,71 @@ final class TurnApiController extends AbstractController
             $systemId = is_string($entry['systemId'] ?? null) ? trim($entry['systemId']) : '';
             $item = is_string($entry['item'] ?? null) ? trim($entry['item']) : '';
             $modelId = is_string($entry['modelId'] ?? null) ? trim($entry['modelId']) : '';
+            $productionKind = is_string($entry['productionKind'] ?? null) ? trim($entry['productionKind']) : '';
+            $sourceModelId = is_string($entry['sourceModelId'] ?? null) ? trim($entry['sourceModelId']) : '';
             if ($systemId === '' || $item === '') {
                 throw new \InvalidArgumentException('Production orders require systemId and item.');
+            }
+            if ($productionKind !== '' && !in_array($productionKind, ['ship', 'installation', 'upgrade', 'legacy'], true)) {
+                throw new \InvalidArgumentException(sprintf('Unknown production kind %s.', $productionKind));
             }
             if ($modelId !== '' && !isset($allowed[$modelId])) {
                 throw new \InvalidArgumentException(sprintf('Production model %s is unknown or not unlocked.', $modelId));
             }
+
+            $system = $systemsById[$systemId] ?? null;
+            if (!is_array($system) || (int) ($system['ownerPlayerId'] ?? 0) !== $playerId) {
+                throw new \InvalidArgumentException(sprintf('Production system %s is not one of your colonies.', $systemId));
+            }
+
+            if ($productionKind === 'upgrade') {
+                if ($modelId === '' || $sourceModelId === '') {
+                    throw new \InvalidArgumentException('Installation upgrades require sourceModelId and target modelId.');
+                }
+                $target = TechnologyModelCatalog::installationUpgradeDefinition($state, $playerId, $sourceModelId, $modelId);
+                if ($target === null) {
+                    throw new \InvalidArgumentException(sprintf('Upgrade %s -> %s is unknown, locked or not a sequential upgrade.', $sourceModelId, $modelId));
+                }
+                $family = (string) ($target['family'] ?? '');
+                $installed = TechnologyModelCatalog::installationForFamily($system, $family);
+                if ($installed === null || ($installed['modelId'] ?? null) !== $sourceModelId) {
+                    throw new \InvalidArgumentException(sprintf('Upgrade source %s is not installed in %s.', $sourceModelId, $systemId));
+                }
+                if (TechnologyModelCatalog::pendingUpgradeForFamily($system, $family) !== null) {
+                    throw new \InvalidArgumentException(sprintf('%s already has an active %s upgrade.', $systemId, $family));
+                }
+                $upgradeKey = $systemId.'|'.$family;
+                if (isset($upgradeFamilies[$upgradeKey])) {
+                    throw new \InvalidArgumentException(sprintf('%s already has a queued %s upgrade in this turn.', $systemId, $family));
+                }
+                $upgradeFamilies[$upgradeKey] = true;
+                $source = TechnologyModelCatalog::model($sourceModelId);
+                $entry = [
+                    'systemId' => $systemId,
+                    'item' => sprintf('Upgrade to %s', (string) $target['name']),
+                    'quantity' => 1,
+                    'productionKind' => 'upgrade',
+                    'modelId' => $modelId,
+                    'modelName' => (string) $target['name'],
+                    'modelVersion' => (int) $target['version'],
+                    'sourceModelId' => $sourceModelId,
+                    'sourceModelVersion' => (int) ($source['version'] ?? $installed['version'] ?? 1),
+                    'upgradeTurns' => max(1, (int) ($target['upgradeTurns'] ?? 1)),
+                ];
+                $normalized[] = $entry;
+                continue;
+            }
+
+            if ($modelId !== '') {
+                $model = TechnologyModelCatalog::model($modelId);
+                if (is_array($model) && ($model['category'] ?? null) === 'installation') {
+                    $family = (string) ($model['family'] ?? '');
+                    if (TechnologyModelCatalog::installationForFamily($system, $family) !== null) {
+                        throw new \InvalidArgumentException(sprintf('%s already has a %s installation; use an upgrade order.', $systemId, $family));
+                    }
+                }
+            }
+
             $entry['systemId'] = $systemId;
             $entry['item'] = $item;
             $entry['quantity'] = max(1, min(10, (int) ($entry['quantity'] ?? 1)));

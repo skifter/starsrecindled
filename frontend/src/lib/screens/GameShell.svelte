@@ -13,7 +13,7 @@
   import { routes as demoRoutes, systems as demoSystems } from '../demo-data';
   import { mapLiveUniverse } from '../live-universe';
   import { OWNER_COLORS, ownerForPlayerId } from '../player-colors';
-  import type { AccountGameAccess, AccountTurnStatus, ConnectionSettings, FleetSummary, GameSection, PlayerOrders, RouteLink, StarSystem } from '../types';
+  import type { AccountGameAccess, AccountTurnStatus, ConnectionSettings, FleetSummary, GameSection, PlayerOrders, ProductionOrder, RouteLink, StarSystem } from '../types';
 
   export let connection: ConnectionSettings;
   export let game: AccountGameAccess | null = null;
@@ -217,12 +217,18 @@
     return false;
   }
 
-  function productionCost(item: string, modelId = ''): number {
+  function productionCost(item: string, modelId = '', productionKind = '', sourceModelId = ''): number {
     if (modelId) {
       const design = status?.model_catalog?.designs.find((entry) => entry.id === modelId);
       if (design) return design.industryCost;
       const installation = status?.model_catalog?.installations.find((entry) => entry.id === modelId);
-      if (installation) return installation.stats.industryCost ?? 0;
+      if (installation) {
+        if (productionKind === 'upgrade') {
+          if (installation.upgradeFrom !== sourceModelId) return 0;
+          return installation.upgradeCost ?? installation.stats.industryCost ?? 0;
+        }
+        return installation.stats.industryCost ?? 0;
+      }
     }
     return PRODUCTION_COSTS[item] ?? 0;
   }
@@ -252,10 +258,13 @@
   function reservedIndustry(systemId: string): number {
     return (orders.production ?? [])
       .filter((order) => order.systemId === systemId)
-      .reduce((sum, order) => sum + productionCost(order.item, order.modelId ?? '') * Math.max(1, order.quantity), 0);
+      .reduce((sum, order) => sum + productionCost(order.item, order.modelId ?? '', order.productionKind ?? '', order.sourceModelId ?? '') * Math.max(1, order.quantity), 0);
   }
 
-  function addProductionForSystem(system: StarSystem, item: string, modelId = ''): void {
+  function addProductionForSystem(system: StarSystem, item: string, modelId = '', metadata: Partial<ProductionOrder> = {}): void {
+    const productionKind = metadata.productionKind ?? '';
+    const sourceModelId = metadata.sourceModelId ?? '';
+
     if (!demoMode) {
       if (!editableTurn) {
         localNotice = 'Reopen the turn before changing production orders.';
@@ -266,27 +275,61 @@
         return;
       }
 
-      const cost = productionCost(item, modelId);
+      const cost = productionCost(item, modelId, productionKind, sourceModelId);
       const remaining = projectedIndustry(system) - reservedIndustry(system.id);
       if (cost > 0 && remaining < cost) {
-        localNotice = `${system.name} needs ${cost.toLocaleString('en-US')} industry for ${item}; ${Math.max(0, remaining).toLocaleString('en-US')} remains after queued builds.`;
+        localNotice = `${system.name} needs ${cost.toLocaleString('en-US')} industry for ${item}; ${Math.max(0, remaining).toLocaleString('en-US')} remains after queued work.`;
         return;
       }
     }
 
     const existing = (orders.production ?? []).find(
-      (order) => order.systemId === system.id && order.item === item && (order.modelId ?? '') === modelId
+      (order) => order.systemId === system.id
+        && order.item === item
+        && (order.modelId ?? '') === modelId
+        && (order.productionKind ?? '') === productionKind
+        && (order.sourceModelId ?? '') === sourceModelId
     );
-    const nextProduction = existing
+
+    if (existing && productionKind === 'upgrade') {
+      localNotice = `${item} is already queued at ${system.name}.`;
+      return;
+    }
+
+    const nextProduction: ProductionOrder[] = existing
       ? (orders.production ?? []).map((order) =>
           order === existing ? { ...order, quantity: order.quantity + 1 } : order
         )
-      : [...(orders.production ?? []), { systemId: system.id, item, quantity: 1, ...(modelId ? { modelId } : {}) }];
+      : [...(orders.production ?? []), {
+          systemId: system.id,
+          item,
+          quantity: 1,
+          ...(modelId ? { modelId } : {}),
+          ...metadata
+        }];
 
     updateOrders(
       { ...orders, production: nextProduction },
       `${item} queued at ${system.name}.`
     );
+  }
+
+  function addInstallationUpgrade(system: StarSystem, targetModelId: string, sourceModelId: string): void {
+    const target = status?.model_catalog?.installations.find((model) => model.id === targetModelId);
+    const source = (system.installations ?? []).find((installation) => installation.modelId === sourceModelId);
+    if (!target || !source || target.upgradeFrom !== sourceModelId) {
+      localNotice = 'That installation upgrade is no longer available. Refresh the turn state.';
+      return;
+    }
+
+    addProductionForSystem(system, `Upgrade to ${target.name}`, target.id, {
+      productionKind: 'upgrade',
+      sourceModelId,
+      sourceModelVersion: source.version,
+      modelName: target.name,
+      modelVersion: target.version,
+      upgradeTurns: target.upgradeTurns ?? 2
+    });
   }
 
   function addProduction(item: string, modelId = ''): void {
@@ -538,6 +581,7 @@
           ownerColor={currentPlayerColor}
           onLocate={openPlanet}
           onQueueBuild={addProductionForSystem}
+          onQueueUpgrade={addInstallationUpgrade}
           onRemoveBuild={removeProduction}
         />
       {:else if activeSection === 'fleets' && !demoMode}
@@ -600,7 +644,7 @@
   <footer class="command-bar">
     <button class:planning={planningFleet !== null} onclick={() => addWaypoint('move')} disabled={!selectedSystem || (!demoMode && (!editableTurn || !ownFleetInSelected))}><Icon name="target" size={28}/><span><strong>{planningFleet ? 'Select destination' : 'Set waypoint'}</strong><small>{demoMode ? 'Plan fleet route' : planningFleet ? planningFleet.name : ownFleetInSelected ? ownFleetInSelected.name : 'Select a fleet'}</small></span></button>
     <button onclick={() => addWaypoint('colonize')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== null || !colonizerInSelected)) || (demoMode && selectedSystem.owner !== 'neutral')}><Icon name="colonize" size={28}/><span><strong>Colonize</strong><small>{demoMode ? 'Establish colony' : selectedSystem?.ownerPlayerId !== null ? 'Select unclaimed system' : colonizerInSelected ? `${colonyCapacity(colonizerInSelected)} colony module` : 'Requires colony module'}</small></span></button>
-    <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId || hasInstallation(selectedSystem, 'orbital_factory'))) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : hasInstallation(selectedSystem, 'orbital_factory') ? 'Factory installed · upgrade in 0.7.2' : selectedSystem?.ownerPlayerId === connection.playerId ? (preferredInstallation('orbital_factory')?.name ?? 'Queue orbital factory') : 'Select your colony'}</small></span></button>
+    <button onclick={() => addProduction('Orbital Factory')} disabled={!selectedSystem || (!demoMode && (!editableTurn || selectedSystem.ownerPlayerId !== connection.playerId || hasInstallation(selectedSystem, 'orbital_factory'))) || (demoMode && selectedSystem.owner !== 'player')}><Icon name="build" size={28}/><span><strong>Build</strong><small>{demoMode ? 'Construct on planet' : hasInstallation(selectedSystem, 'orbital_factory') ? 'Factory installed · manage upgrades in Planets' : selectedSystem?.ownerPlayerId === connection.playerId ? (preferredInstallation('orbital_factory')?.name ?? 'Queue orbital factory') : 'Select your colony'}</small></span></button>
     <button onclick={() => (activeSection = 'research')}><Icon name="research" size={28}/><span><strong>Research</strong><small>{demoMode ? 'Choose new technology' : researchProjectName}</small></span></button>
     {#if ownSubmitted && serverTurnStatus === 'open' && !demoMode}
       <button class="draft-button" disabled={busy} onclick={onReopen}><Icon name="load" size={24}/><span><strong>Reopen turn</strong><small>Continue editing orders</small></span></button>
