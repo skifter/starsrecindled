@@ -213,6 +213,11 @@ The first 0.7.2 slice — explicit planetary installation upgrades — is now im
 - Legacy normal-build orders for already-installed families are cleaned from loaded local drafts; backend validation still rejects invalid direct/API orders.
 - Production validation messages prefer human-readable colony/model names over internal ids.
 
+- Planets uses native `<details>` collapse/expand rather than a shared Svelte expanded-id list; colonies remain collapsed by default and toggling is browser-native.
+- Compact planet rows use a lightweight planet icon; sensor range remains available in expanded colony details.
+- Galaxy planet details include Development percentage in the top overview metrics.
+- Draft installation upgrades are disabled/greyed and labelled `IN QUEUE`; the collapsed colony status shows `UPGRADE QUEUED` until turn processing starts.
+
 ### Next 0.7.2 slices
 
 - design cloning/editing so researched components can be assembled into intentional new ship generations
@@ -232,6 +237,7 @@ Use:
 
 ```text
 ## Unreleased
+- next recommended implementation order: design cloning/editing -> ship refit -> fuel; do not start Combat before these are stable
 
 ### Added
 ### Changed

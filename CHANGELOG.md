@@ -14,11 +14,15 @@
 - Installation upgrades validate exact sequential source/target models and research unlocks.
 - The old installation remains active until the upgrade completes; upgrade effects are applied as version deltas at completion.
 - Planet and galaxy detail-panel installation actions are version-aware: installed hardware offers the next sequential Mk upgrade instead of a disabled older build action.
+- Planet cards use native collapsed details and lightweight compact headers so expand/collapse does not trigger a full Svelte list-state update.
+- Queued installation upgrades are disabled and visually muted with an explicit `IN QUEUE` state until the submitted turn is processed.
+- The Galaxy planet detail overview now shows Development percentage alongside Population, Happiness and Sensor range.
 
 ### Fixed
 
 - Loaded legacy installation build orders are removed from the local draft when that installation family is already present; the player must use an explicit upgrade order instead.
 - Production validation errors use the colony name and installed model name instead of internal system/family identifiers where possible.
+- Reduced lag when expanding or collapsing colonies in the Planets overview.
 
 ## 0.7.1
 
