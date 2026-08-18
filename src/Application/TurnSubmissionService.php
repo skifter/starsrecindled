@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bellcom\StarsTurnBundle\Application;
 
+use Bellcom\StarsTurnBundle\Domain\AiTurnPlanner;
 use Bellcom\StarsTurnBundle\Entity\Player;
 use Bellcom\StarsTurnBundle\Entity\Turn;
 use Bellcom\StarsTurnBundle\Enum\NotificationEventType;
@@ -60,6 +61,14 @@ final readonly class TurnSubmissionService
             $this->entityManager->flush();
 
             $allPlayerTurns = $this->playerTurnRepository->findForTurn($turn);
+            // STARS_AI_PLAYERS_DEV5: AI seats use the same PlayerTurn state
+            // machine as humans, but their valid order envelope is generated automatically.
+            foreach ($allPlayerTurns as $entry) {
+                if ($entry->getPlayer()->isAi() && $entry->getStatus() === PlayerTurnStatus::DRAFT) {
+                    $entry->submit(AiTurnPlanner::plan($entry->getPlayer()));
+                }
+            }
+            $this->entityManager->flush();
             $total = count($allPlayerTurns);
             $submitted = count(array_filter(
                 $allPlayerTurns,
@@ -79,7 +88,9 @@ final readonly class TurnSubmissionService
         });
 
         if ($result['outcome']->allPlayersSubmitted) {
-            $this->notificationPlanner->plan($result['turn'], NotificationEventType::ALL_PLAYERS_SUBMITTED);
+            if (!$this->gameHasAiPlayers($result['turn'])) {
+                $this->notificationPlanner->plan($result['turn'], NotificationEventType::ALL_PLAYERS_SUBMITTED);
+            }
             $turnId = $result['turn']->getId() ?? throw new \LogicException('Runden mangler id.');
             $this->messageBus->dispatch(new GenerateTurnMessage($turnId));
         }
@@ -98,6 +109,18 @@ final readonly class TurnSubmissionService
             ?? throw new \DomainException('Spilleren er ikke med i denne runde.');
         $playerTurn->reopen();
         $this->entityManager->flush();
+    }
+
+
+    private function gameHasAiPlayers(Turn $turn): bool
+    {
+        foreach ($turn->getGame()->getActivePlayers() as $player) {
+            if ($player->isAi()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function assertSameGame(Player $player, Turn $turn): void

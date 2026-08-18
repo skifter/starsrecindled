@@ -26,6 +26,13 @@ final readonly class GameInvitationConsoleSubscriber implements EventSubscriberI
             return;
         }
 
+        // STARS_AI_PLAYERS_DEV5: AI test games are self-contained and must not
+        // generate invitation e-mails for synthetic AI addresses.
+        if ((int) $event->getInput()->getOption('ai') > 0) {
+            $event->getOutput()->writeln('AI test game: invitation reconciliation skipped.');
+            return;
+        }
+
         $result = $this->invitations->reconcile();
         $event->getOutput()->writeln(sprintf(
             'Invitations: created=%d emailed=%d failed=%d',

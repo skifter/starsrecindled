@@ -34,6 +34,13 @@ class Player
     #[ORM\Column(type: Types::BOOLEAN)]
     private bool $active = true;
 
+    // STARS_AI_PLAYERS_DEV5
+    #[ORM\Column(name: 'controller_type', length: 16, options: ['default' => 'human'])]
+    private string $controllerType = 'human';
+
+    #[ORM\Column(name: 'ai_level', length: 16, nullable: true)]
+    private ?string $aiLevel = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
@@ -80,6 +87,33 @@ class Player
     public function isActive(): bool
     {
         return $this->active;
+    }
+
+
+    public function configureAi(string $level = 'standard'): void
+    {
+        $level = strtolower(trim($level));
+        if ($level !== 'standard') {
+            throw new \InvalidArgumentException(sprintf('Ukendt AI-niveau: %s', $level));
+        }
+
+        $this->controllerType = 'ai';
+        $this->aiLevel = $level;
+    }
+
+    public function isAi(): bool
+    {
+        return $this->controllerType === 'ai';
+    }
+
+    public function getControllerType(): string
+    {
+        return $this->controllerType;
+    }
+
+    public function getAiLevel(): ?string
+    {
+        return $this->aiLevel;
     }
 
     public function tokenMatches(string $plainToken): bool

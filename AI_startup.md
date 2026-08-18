@@ -189,50 +189,13 @@ Planned sequence:
 
 Do not rush Combat ahead of the equipment/refit/fuel foundation.
 
-## Immediate next development: 0.7.2
+## Immediate next development
 
-The first 0.7.2 slice — explicit planetary installation upgrades — is now implemented as Unreleased development work. The public application version remains `0.7.1` until the complete 0.7.2 release is ready.
-
-### Implemented in the current Unreleased slice
-
-- sequential `Mk I -> Mk II -> Mk III` installation upgrades; generations cannot be skipped
-- upgrade target must be unlocked by completed research
-- production orders persist the exact source and target model/version
-- upgrade industry cost is paid when the order starts
-- current installation stays active during the upgrade
-- Mk II/Mk III installation upgrades currently take two turn-processing cycles
-- pending work is stored in each system's existing universe-state JSON as `installationUpgrades`; no database migration is required
-- completion replaces the installed model and applies only the stat delta between old and new versions
-- Orbital Factory income improvements begin on the turn after completion because current-turn income is collected before upgrades advance
-- Planet UI shows available, queued and in-progress upgrades
-- Turn Report records completed installation upgrades
-- `tests/installation-upgrade-smoke.php` verifies sequencing and defense/factory/sensor stat deltas
-
-- Planets overview is collapsible and starts with every colony collapsed; population, happiness, development, defenses and activity remain visible in the compact row.
-- Planet and galaxy detail panels expose sequential installation upgrades directly instead of presenting installed older models as disabled build choices.
-- Legacy normal-build orders for already-installed families are cleaned from loaded local drafts; backend validation still rejects invalid direct/API orders.
-- Production validation messages prefer human-readable colony/model names over internal ids.
-
-- Planets uses native `<details>` collapse/expand rather than a shared Svelte expanded-id list; colonies remain collapsed by default and toggling is browser-native.
-- Compact planet rows use a lightweight planet icon; sensor range remains available in expanded colony details.
-- Galaxy planet details include Development percentage in the top overview metrics.
-- Draft installation upgrades are disabled/greyed and labelled `IN QUEUE`; the collapsed colony status shows `UPGRADE QUEUED` until turn processing starts.
-
-- Ship designs are now explicit player-created immutable generations. Hardware research unlocks components but does not auto-generate a new design.
-- DESIGNS can clone an existing generation, select unlocked hull/engine/scanner/weapon/armor models, preview derived stats/cost, and queue the new generation in the current turn draft.
-- New design orders are validated server-side and persisted when the turn is processed; the newest processed generation becomes the current new-build design while older fleets/design snapshots stay unchanged.
-- Turn Report records completed ship-design generation events.
-
-### Next 0.7.2 slices
-
-- design cloning/editing so researched components can be assembled into intentional new ship generations
-- ship refit between compatible generations
-- refit prerequisites / shipyard requirements
-- refit industry cost and time
-- fleet current fuel and per-hop consumption
-- applied research such as fuel optimization affecting existing fleets
-
-The installation-upgrade state machine should be reused where practical for ship refit instead of inventing a separate unrelated timing model.
+After dev5 AI test players are stable on the deployed server:
+1. connect planet ship production to an exact saved ship design/generation;
+2. add fleet refit between compatible explicit generations;
+3. add fuel behavior and global fuel/software/logistics improvements;
+4. move to Combat (`0.8.0`).
 
 ## Changelog policy
 
@@ -262,60 +225,13 @@ Rules:
 
 ## Development and deployment workflow
 
-Development is performed on the developer's local workstation.
+1. Apply AI-generated development packages only to the local checkout: `/home/skifter/git/starsrecindled`.
+2. Run local automated checks (`php` smoke/lint, frontend check/build, `git diff --check`).
+3. Commit locally and push `origin/main`.
+4. Update/deploy the server from the pushed Git repository using the repository's install/update script.
+5. Perform GUI and gameplay integration testing on the deployed server.
 
-- Local repository: `/home/skifter/git/starsrecindled`
-- Remote repository: `git@github.com:skifter/starsrecindled.git`
-- Branch: `main`
-
-### Local development
-
-1. AI-generated ZIP/apply packages are applied **only to the local Git checkout**.
-2. Changes are reviewed and tested locally.
-3. `git diff --check`, relevant PHP checks/tests, and frontend `check`/`build` must pass.
-4. Changes are committed on the local workstation.
-5. The commit is pushed to `origin/main`.
-6. The Git repository is the authoritative deployment source.
-
-AI development ZIP/apply packages must not be applied directly to the server.
-
-Typical local apply flow:
-
-```bash
-rm -rf /tmp/stars-<feature>-<version>
-cd /tmp
-unzip /home/skifter/tmp/stars-<feature>-<version>.zip
-/tmp/stars-<feature>-<version>/install/apply-<version>.sh /home/skifter/git/starsrecindled
-```
-
-Typical local verification:
-
-```bash
-cd /home/skifter/git/starsrecindled
-npm --prefix frontend run check
-npm --prefix frontend run build
-git diff --check
-git status -sb
-```
-
-Also run `php -l` on modified PHP files and any feature-specific tests supplied with the change.
-
-### Server deployment
-
-After the tested change is committed and pushed to `main`, update the server using the StarsRecindled installer/update script contained in the Git repository.
-
-The canonical flow is:
-
-```text
-local apply/development
--> local tests
--> local commit
--> push origin/main
--> server installer/update script from the repository
--> deployment verification in the running application
-```
-
-Do not bypass Git by copying AI payload files directly to the server. This separation is intentional and must be preserved for future releases.
+AI development ZIP/apply packages must never be applied directly to the server. Git `main` is the authoritative deployment source.
 
 ## Shell-command safety
 
@@ -381,3 +297,12 @@ The purpose is that a new conversation should need the repository plus this file
 
 Local development → local tests → commit → push main → server installer/update script → deployment verification.
 AI development ZIP/apply packages are for the local Git checkout only and must not be applied directly to the server.
+
+## AI test players
+
+- Players have a persistent controller type: `human` or `ai`. AI players also store an AI level; dev5 implements only `standard`.
+- The web lobby can create a self-contained test game with the logged-in account plus 1-3 Standard AI seats.
+- AI seats are real `Player` / `PlayerTurn` participants. They are not frontend mock players and must obey the same turn lifecycle as humans.
+- Standard AI in dev5 is deliberately test-oriented: when a human submits, still-draft AI seats automatically submit a valid conservative order envelope with no fleet, production, research or design orders.
+- AI test games do not send invitation/turn email batches to synthetic AI addresses.
+- Future AI strategy should consume only information legitimately visible to that player. Do not give AI hidden map/fog information or alternate gameplay rules.

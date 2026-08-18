@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import '../app.css';
   import AccountLobby from '$lib/screens/AccountLobby.svelte';
+  import CreateAiGamePanel from '$lib/screens/CreateAiGamePanel.svelte';
   import GameShell from '$lib/screens/GameShell.svelte';
   import LoginScreen from '$lib/screens/LoginScreen.svelte';
   import { APP_VERSION } from '$lib/version';
@@ -13,6 +14,7 @@
     AccountTurnStatus,
     AppScreen,
     ConnectionSettings,
+    CreateAiGameInput,
     JoinGameInput,
     PlayerOrders
   } from '$lib/types';
@@ -189,6 +191,23 @@
       screen = 'lobby';
     } catch (caught) {
       loginError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      busy = false;
+    }
+  }
+
+
+  async function createAiGame(input: CreateAiGameInput): Promise<boolean> {
+    if (!profile || profile.authMode !== 'web') return false;
+    busy = true;
+    accountMessage = '';
+    try {
+      profile = await webAccountRequest<AccountProfileResult>('/games/ai', 'POST', input);
+      accountMessage = profile.notice ?? 'AI test game created.';
+      return true;
+    } catch (caught) {
+      accountMessage = caught instanceof Error ? caught.message : String(caught);
+      return false;
     } finally {
       busy = false;
     }
@@ -504,6 +523,9 @@
     onLogout={logout}
     onDemo={openDemo}
   />
+  {#if profile.authMode === 'web'}
+    <CreateAiGamePanel {busy} onCreate={createAiGame} />
+  {/if}
 {:else}
   <GameShell
     {connection}

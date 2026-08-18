@@ -24,6 +24,12 @@ export interface AccountRegistrationInput extends AccountLoginInput {
   displayName: string;
 }
 
+export interface CreateAiGameInput {
+  name: string;
+  aiPlayers: number;
+  aiLevel: 'standard';
+}
+
 export interface AccountIdentity {
   id: number;
   email: string;
@@ -36,6 +42,9 @@ export interface GamePlayerSummary {
   playerId: number;
   displayName: string;
   active: boolean;
+  controllerType?: 'human' | 'ai';
+  aiLevel?: 'standard' | null;
+  submitted?: boolean;
 }
 
 export interface AccountGameAccess {

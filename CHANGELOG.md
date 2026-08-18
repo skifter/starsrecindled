@@ -12,6 +12,10 @@
 - Added turn draft orders for new ship generations, including server-side component/research validation, persistent design lineage and Turn Report events.
 - Added a design-generation smoke test covering immutable old generations, unlocked component selection and rejection of duplicate/locked designs.
 
+- Added persistent human/AI player controller metadata with a first Standard AI level.
+- Added lobby creation of self-contained test games with one logged-in human and one to three Standard AI players.
+- Added automatic AI turn submission so AI test games advance without additional player logins.
+- Added an AI player smoke test and database migration for controller type / AI level.
 ### Changed
 
 - Installation upgrades validate exact sequential source/target models and research unlocks.
@@ -23,6 +27,8 @@
 - Completing hardware research now unlocks component models without automatically creating or replacing a ship design; a new generation requires an explicit player design order.
 - A newly queued ship design becomes the current new-build design only after the turn is processed; production already queued this turn keeps its exact design version.
 
+- Player/turn status now exposes AI controller information and the Players screen labels computer-controlled seats.
+- AI test games suppress synthetic-player invitation/turn email batches; Standard AI currently submits a conservative valid no-op order envelope for deterministic testing.
 ### Fixed
 
 - Loaded legacy installation build orders are removed from the local draft when that installation family is already present; the player must use an explicit upgrade order instead.

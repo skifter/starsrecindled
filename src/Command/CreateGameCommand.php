@@ -36,14 +36,29 @@ final class CreateGameCommand extends Command
                 InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
                 'Spiller som "Navn <email@example.net>". Gentag mindst to gange.',
             );
+
+        // STARS_AI_PLAYERS_DEV5
+        $this
+            ->addOption('ai', null, InputOption::VALUE_REQUIRED, 'Antal Standard AI-spillere (0-3).', '0')
+            ->addOption('ai-level', null, InputOption::VALUE_REQUIRED, 'AI-niveau. Kun standard findes endnu.', 'standard');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
         $playerDefinitions = $input->getOption('player');
-        if (!is_array($playerDefinitions) || count($playerDefinitions) < 2) {
-            $io->error('Angiv mindst to --player-værdier.');
+        $aiCount = (int) $input->getOption('ai');
+        $aiLevel = strtolower(trim((string) $input->getOption('ai-level')));
+        if ($aiCount < 0 || $aiCount > 3) {
+            $io->error('--ai skal være mellem 0 og 3.');
+            return Command::INVALID;
+        }
+        if ($aiLevel !== 'standard') {
+            $io->error('Kun --ai-level=standard findes endnu.');
+            return Command::INVALID;
+        }
+        if (!is_array($playerDefinitions) || count($playerDefinitions) + $aiCount < 2) {
+            $io->error('Angiv mindst to spillersæder i alt via --player og/eller --ai.');
             return Command::INVALID;
         }
 
@@ -64,6 +79,21 @@ final class CreateGameCommand extends Command
             $this->entityManager->persist($player);
             $playersAndTokens[] = [$player, $token];
         }
+
+        $aiNames = ['AI Dominion', 'AI Collective', 'AI League'];
+        for ($index = 0; $index < $aiCount; ++$index) {
+            $token = bin2hex(random_bytes(32));
+            $aiPlayer = new Player(
+                $game,
+                $aiNames[$index] ?? sprintf('AI %d', $index + 1),
+                sprintf('ai-%d-%s@stars.invalid', $index + 1, substr($token, 0, 12)),
+                $token,
+            );
+            $aiPlayer->configureAi($aiLevel);
+            $this->entityManager->persist($aiPlayer);
+            $playersAndTokens[] = [$aiPlayer, $token];
+        }
+
 
         // Assign database ids before the deterministic universe is generated. Fleet ownership
         // uses the real player ids, which are also the ids used by submitted turn orders.

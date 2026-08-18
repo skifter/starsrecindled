@@ -89,9 +89,22 @@ final readonly class GenerateTurnMessageHandler
             return $turn;
         });
 
-        if ($publishedTurn !== null) {
+        if ($publishedTurn !== null && !$this->gameHasAiPlayers($publishedTurn)) {
+            // STARS_AI_PLAYERS_DEV5: synthetic AI addresses never receive mail.
             $this->notificationPlanner->plan($publishedTurn, NotificationEventType::TURN_PUBLISHED);
         }
+    }
+
+
+    private function gameHasAiPlayers(Turn $turn): bool
+    {
+        foreach ($turn->getGame()->getActivePlayers() as $player) {
+            if ($player->isAi()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }

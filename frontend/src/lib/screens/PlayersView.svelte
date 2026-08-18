@@ -34,6 +34,27 @@
     if (turnStatus !== 'open') return turnStatus.charAt(0).toUpperCase() + turnStatus.slice(1);
     return playerId === currentPlayerId ? 'Your turn' : 'Waiting';
   }
+
+
+  function livePlayer(playerId: number): Record<string, unknown> | null {
+    const rawPlayers = status?.players;
+    if (!Array.isArray(rawPlayers)) return null;
+    const found = rawPlayers.find((entry) => {
+      if (!entry || typeof entry !== 'object') return false;
+      return Number((entry as unknown as Record<string, unknown>).id) === playerId;
+    });
+    return found && typeof found === 'object' ? found as unknown as Record<string, unknown> : null;
+  }
+
+  function isAiPlayer(player: GamePlayerSummary): boolean {
+    return player.controllerType === 'ai' || livePlayer(player.playerId)?.controller_type === 'ai';
+  }
+
+  function aiLevel(player: GamePlayerSummary): string {
+    const level = player.aiLevel ?? livePlayer(player.playerId)?.ai_level;
+    return typeof level === 'string' && level !== '' ? level : 'standard';
+  }
+
 </script>
 
 <section class="players-view">
@@ -72,7 +93,7 @@
       {#each players as player}
         <article class="player-row" class:you={player.playerId === currentPlayerId}>
           <span class="seat">#{player.playerId}</span>
-          <span class="player-name"><Icon name="user" size={19} /><strong>{player.displayName}</strong>{#if player.playerId === currentPlayerId}<small>You</small>{/if}</span>
+          <span class="player-name"><Icon name="user" size={19} /><strong>{player.displayName}</strong>{#if isAiPlayer(player)}<small class="ai-badge">AI · {aiLevel(player)}</small>{/if}{#if player.playerId === currentPlayerId}<small>You</small>{/if}</span>
           <span class:inactive={!player.active} class:submitted={turnPlayer(player.playerId)?.submitted === true}>{player.active ? turnState(player.playerId) : 'Inactive'}</span>
           <span class="diplomacy-state">{player.playerId === currentPlayerId ? 'Your empire' : 'Relations coming later'}</span>
         </article>
@@ -112,4 +133,6 @@
   .empty-state p { color:#7b95a7; }
   @media(max-width:1050px){.summary-grid{grid-template-columns:1fr 1fr}.player-row{grid-template-columns:65px 1.3fr .7fr}.player-row>span:last-child{display:none}}
   @media(max-width:650px){.players-view{padding:.85rem}.view-header{display:grid}.summary-grid{grid-template-columns:1fr}.player-row{grid-template-columns:50px 1fr}.player-row>span:nth-child(3),.player-row>span:nth-child(4){display:none}.table-head span:nth-child(2){display:block}}
+
+  .ai-badge { margin-left:.35rem; padding:.12rem .35rem; border:1px solid rgba(91,204,255,.35); color:#66d1ff!important; text-transform:uppercase; letter-spacing:.07em; font-size:.56rem!important; }
 </style>

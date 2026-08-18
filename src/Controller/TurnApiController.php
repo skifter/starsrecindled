@@ -49,6 +49,8 @@ final class TurnApiController extends AbstractController
             $players[] = [
                 'id' => $entryPlayer->getId(),
                 'name' => $entryPlayer->getDisplayName(),
+                'controller_type' => $entryPlayer->getControllerType(),
+                'ai_level' => $entryPlayer->getAiLevel(),
                 'submitted' => $playerTurn->getSubmittedAt() !== null,
                 'submitted_at' => $playerTurn->getSubmittedAt()?->format(DATE_ATOM),
             ];
